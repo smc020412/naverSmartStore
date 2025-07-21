@@ -186,8 +186,6 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
             qty = df_to_write.loc[df_to_write['배송상태'] == status, '판매수량'].sum()
             ws.cell(row=summary_row+8+j, column=idx_amt, value=f'{status} 수량')
             ws.cell(row=summary_row+8+j, column=idx_amt+1, value=qty)
-    write_with_summary(df_ok, '정상') 수량')
-            ws.cell(row=summary_row+7+i, column=idx_amt+1, value=qty)
     write_with_summary(df_ok, '정상')
     write_with_summary(df_err, '문제')
 buf.seek(0)
