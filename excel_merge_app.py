@@ -98,7 +98,7 @@ combined['일자'] = pd.to_datetime(combined['일자'], errors='coerce')
 for col in ['판매수량','판매금액','판매수수료']:
     combined[col] = pd.to_numeric(combined[col], errors='coerce').fillna(0).astype(int)
 
-# 5) 날짜 필터 UI
+# 5) 날짜 범위 필터 UI
 st.sidebar.header("날짜 범위 필터")
 valid_dates = combined['일자'].dt.date.dropna()
 if not valid_dates.empty:
@@ -106,13 +106,26 @@ if not valid_dates.empty:
     dr = st.sidebar.date_input("날짜 범위 선택", value=(mn, mx), min_value=mn, max_value=mx)
     if isinstance(dr, tuple) and len(dr) == 2:
         start, end = dr
-        combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end))|combined['일자'].isna()]
+        combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) | combined['일자'].isna()]
 
-# 6) 배송비 계산 및 표시 (상품번호 기준 매핑)
+# 6) 제품 선택 UI (상품번호에 매칭되는 제품명 표시)
+st.sidebar.header("제품 선택")
+prod_map = combined[['상품번호','판매품목']].drop_duplicates().reset_index(drop=True)
+select_all = st.sidebar.checkbox("전체 제품 선택", value=True)
+if select_all:
+    selected_nums = prod_map['상품번호'].tolist()
+else:
+    selected_nums = []
+    for _, row in prod_map.iterrows():
+        if st.sidebar.checkbox(row['판매품목'], value=False):
+            selected_nums.append(row['상품번호'])
+combined = combined[combined['상품번호'].isin(selected_nums)]
+
+# 7) 배송비 계산 및 표시 (상품번호 기준 매핑)
 combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].astype(int)
 
-# 7) 주문 단위 집계 및 순수익 계산
+# 8) 주문 단위 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
     '일자': 'first',
     '판매품목': 'first',
@@ -125,9 +138,9 @@ merged = combined.groupby('주문번호', as_index=False).agg({
     '정산현황': lambda x: next((v for v in x if pd.notna(v) and v!=''), ''),
     '기타': lambda x: ', '.join(x.dropna().unique())
 })
-merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merged['택배비']
+merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
 
-# 8) 미리보기 (정상/문제 데이터 분리)
+# 9) 미리보기 (정상/문제 데이터 분리)
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
 df_ok = merged[mask]
 df_err = merged[~mask]
@@ -137,7 +150,7 @@ st.data_editor(df_ok[preview_cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
 st.data_editor(df_err[preview_cols], num_rows="dynamic", key="err_table")
 
-# 9) 엑셀 다운로드 및 요약 (정상/문제 시트 분리)
+# 10) 엑셀 다운로드 및 요약 (정상/문제 시트 분리)
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def write_with_summary(df, sheet_name):
@@ -165,4 +178,4 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     write_with_summary(df_ok, '정상')
     write_with_summary(df_err, '문제')
 buf.seek(0)
-st.download_button("결산 엑셀 다운로드", buf, file_name="네이버스토어_결산파일.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+st.download_button("결산 엑셀 다운로드", buf, file_name="결과.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
