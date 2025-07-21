@@ -64,7 +64,13 @@ needed_cols = [
 dfs = []
 for f in uploaded_files:
     df = pd.read_excel(f, engine="openpyxl")
+    # 컬럼명 매핑
     df.rename(columns=column_mapping, inplace=True)
+    # 옵션정보와 기존 옵션명 통합
+    if '옵션정보' in df.columns:
+        df['옵션명'] = df['옵션정보']
+        df.drop(columns=['옵션정보'], inplace=True)
+    # 수수료 합산
     existing = [c for c in fee_columns if c in df.columns]
     if existing:
         df[existing] = df[existing].apply(pd.to_numeric, errors='coerce')
@@ -72,6 +78,7 @@ for f in uploaded_files:
         df.drop(columns=existing, inplace=True)
     else:
         df['판매수수료'] = 0
+    # 필요한 컬럼 채우기
     for col in needed_cols:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
