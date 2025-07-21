@@ -95,7 +95,7 @@ if not valid_dates.empty:
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) |
                               combined['일자'].isna()]
 
-# 7) 제품 및 옵션 필터 (상품목록 기반)
+# 7) 제품 필터 (상품목록 기반)
 if item_file:
     products = item_df['상품명'].dropna().unique().tolist()
     st.sidebar.header("제품 선택")
@@ -104,21 +104,10 @@ if item_file:
         selected_products = products
     else:
         selected_products = [prod for prod in products if st.sidebar.checkbox(prod, value=False)]
-    # 제품으로 필터
+    # 제품으로만 필터
     combined = combined[combined['판매품목'].isin(selected_products)]
 
-    # 해당 제품에 대한 옵션 목록
-    options = combined['옵션명'].dropna().unique().tolist()
-    st.sidebar.header("옵션 선택")
-    select_all_options = st.sidebar.checkbox("전체 옵션 선택", value=True)
-    if select_all_options:
-        selected_options = options
-    else:
-        selected_options = [opt for opt in options if st.sidebar.checkbox(opt, value=False)]
-    # 옵션으로 추가 필터
-    combined = combined[combined['옵션명'].isin(selected_options)]
-
-# 8) 배송비 계산 및 표시 (정수, 음수) 및 표시 (정수, 음수)
+# 8) 배송비 계산 및 표시 (정수, 음수) 배송비 계산 및 표시 (정수, 음수) 및 표시 (정수, 음수)
 combined['택배비'] = combined['판매품목'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].astype(int)
 
