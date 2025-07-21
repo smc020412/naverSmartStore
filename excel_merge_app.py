@@ -7,25 +7,8 @@ import msoffcrypto  # 암호화된 엑셀 처리용
 st.set_page_config(page_title="네이버스토어 엑셀 결산", layout="wide")
 st.title("네이버스토어 엑셀 결산 앱")
 
-# 1) 아산율림_제품목록 파일 업로드 (선택) 및 배송비 매핑
+# 1) 상품현황 배송비 파일 업로드 (선택) 및 상품번호 기반 배송비 매핑
 shipping_map = {}
-item_file = st.sidebar.file_uploader(
-    "아산율림_제품목록 파일 업로드 (선택)",
-    type=["xlsx"],
-    accept_multiple_files=False,
-    key="item_list"
-)
-if item_file:
-    try:
-        item_df = pd.read_excel(item_file, engine="openpyxl")
-        shipping_map = dict(zip(item_df['상품명'], item_df['배송비']))
-    except Exception as e:
-        st.sidebar.error(f"상품목록 파일 처리 중 오류: {e}")
-else:
-    st.sidebar.info("상품목록 파일이 없으면 모든 제품을 표시하고 배송비는 0으로 처리됩니다.")
-
-# 1-2) 상품현황 배송비 파일 업로드 (선택) 및 상품번호 기반 배송비 매핑
-shipping_map_num = {}
 shipping_fee_file = st.sidebar.file_uploader(
     "상품현황 배송비 파일 업로드 (선택)",
     type=["xlsx"],
@@ -35,14 +18,14 @@ shipping_fee_file = st.sidebar.file_uploader(
 if shipping_fee_file:
     try:
         shipping_df = pd.read_excel(shipping_fee_file, engine="openpyxl")
-        shipping_map_num = dict(zip(shipping_df['상품번호'], shipping_df['배송비']))
-        st.sidebar.success(f"상품번호 기반 배송비 매핑 정보 {len(shipping_map_num)}건 로드됨")
+        shipping_map = dict(zip(shipping_df['상품번호'], shipping_df['배송비']))
+        st.sidebar.success(f"배송비 매핑 정보 {len(shipping_map)}건 로드됨")
     except Exception as e:
         st.sidebar.error(f"배송비 파일 처리 중 오류: {e}")
 else:
     st.sidebar.info("배송비 파일이 없으면 택배비는 0으로 처리됩니다.")
 
-# 2) 네이버스토어 엑셀 파일 업로드 (여러 개 가능) & 비밀번호 입력
+# 2) 네이버스토어 엑셀 파일 업로드 및 비밀번호 입력
 uploaded_files = st.sidebar.file_uploader(
     "네이버스토어 엑셀 파일 업로드 (여러 개 가능)",
     type=["xlsx"],
@@ -144,27 +127,11 @@ if not valid_dates.empty:
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end))|
                               combined['일자'].isna()]
 
-# 6) 제품 선택 UI
-if item_file:
-    products = item_df['상품명'].dropna().unique().tolist()
-    st.sidebar.header("제품 선택")
-    select_all = st.sidebar.checkbox("전체 제품 선택", value=True)
-    if select_all:
-        selected = products
-    else:
-        selected = [p for p in products if st.sidebar.checkbox(p, value=False)]
-    combined = combined[combined['판매품목'].isin(selected)]
-
-# 7) 배송비 계산 및 표시 (상품번호 우선, 상품명 대체 매핑)
-combined['택배비'] = combined.apply(
-    lambda row: (shipping_map_num.get(row.get('상품번호'))
-                 if row.get('상품번호') in shipping_map_num
-                 else shipping_map.get(row.get('판매품목'), 0))
-                * row['판매수량'], axis=1
-)
+# 6) 배송비 계산 및 표시 (상품번호 기준 매핑)
+combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].fillna(0).astype(int)
 
-# 8) 주문 단위 집계 및 순수익 계산
+# 7) 주문 단위 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
     '일자': 'first',
     '판매품목': 'first',
@@ -179,18 +146,17 @@ merged = combined.groupby('주문번호', as_index=False).agg({
 })
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
 
-# 9) 미리보기 (정상/문제 데이터 분리)
+# 8) 미리보기 (정상/문제 데이터 분리)
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
 df_ok = merged[mask]
 df_err = merged[~mask]
-# 옵션명 포함하여 컬럼 순서 지정
 preview_cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("판매수량 및 판매금액 정상 데이터")
 st.data_editor(df_ok[preview_cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
 st.data_editor(df_err[preview_cols], num_rows="dynamic", key="err_table")
 
-# 10) 엑셀 다운로드 및 요약 (정상/문제 시트 분리)
+# 9) 엑셀 다운로드 및 요약 (정상/문제 시트 분리)
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def write_with_summary(df, sheet_name):
@@ -216,7 +182,6 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         ws.cell(row=summary_row+4, column=idx_amt+3, value=total_deposit)
         ws.cell(row=summary_row+5, column=idx_amt, value='총이익')
         ws.cell(row=summary_row+5, column=idx_amt+1, value=total_amount + total_deposit)
-        # 빠른정산 수량 및 배송 상태별 수량 요약행 추가
         qty_fast = df_to_write.loc[df_to_write['정산현황'] == '빠른정산', '판매수량'].sum()
         ws.cell(row=summary_row+7, column=idx_amt, value='빠른정산 수량')
         ws.cell(row=summary_row+7, column=idx_amt+1, value=qty_fast)
