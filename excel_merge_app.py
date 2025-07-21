@@ -96,14 +96,15 @@ if not valid_dates.empty:
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) |
                               combined['일자'].isna()]
 
-# 7) 제품 필터 (상품목록 기반 체크박스)
+# 7) 제품 필터 (상품목록 기반 체크박스 with 전체선택)
 if item_file:
     products = item_df['상품명'].dropna().unique().tolist()
     st.sidebar.header("제품 선택")
-    selected_products = []
-    for prod in products:
-        if st.sidebar.checkbox(prod, value=True):
-            selected_products.append(prod)
+    select_all = st.sidebar.checkbox("전체 선택", value=True)
+    if select_all:
+        selected_products = products
+    else:
+        selected_products = [prod for prod in products if st.sidebar.checkbox(prod, value=False)]
     combined = combined[combined['판매품목'].isin(selected_products)]
 
 # 8) 배송비 계산: 제품명 매칭 후 수량 곱하기 (없으면 0), 정수형, 음수표시
@@ -127,13 +128,13 @@ merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merge
 
 # 10) 정상/문제 분류 및 미리보기
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
-df_ok = merged[mask]
-df_err = merged[~mask]
+_df_ok = merged[mask]
+_df_err = merged[~mask]
 cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("판매수량 및 판매금액 정상 데이터")
-st.data_editor(df_ok[cols], num_rows="dynamic", key="ok_table")
+st.data_editor(_df_ok[cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
-st.data_editor(df_err[cols], num_rows="dynamic", key="err_table")
+st.data_editor(_df_err[cols], num_rows="dynamic", key="err_table")
 
 # 11) 엑셀 다운로드 (2개 시트 + 요약행 추가)
 buf = BytesIO()
@@ -148,20 +149,26 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         total_deposit = total_fee + total_delivery
         summary_row = ws.max_row + 2
         idx_amt = list(df.columns).index('판매금액') + 1
+        # 총판매량
         ws.cell(row=summary_row, column=idx_amt, value='총판매량')
         ws.cell(row=summary_row, column=idx_amt+1, value=total_qty)
+        # 총금액
         ws.cell(row=summary_row+1, column=idx_amt, value='총금액')
         ws.cell(row=summary_row+1, column=idx_amt+1, value=total_amount)
+        # 총수수료
         ws.cell(row=summary_row+2, column=idx_amt+2, value='총수수료')
         ws.cell(row=summary_row+2, column=idx_amt+3, value=total_fee)
+        # 총택배비
         ws.cell(row=summary_row+3, column=idx_amt+2, value='총택배비')
         ws.cell(row=summary_row+3, column=idx_amt+3, value=total_delivery)
+        # 총지출
         ws.cell(row=summary_row+4, column=idx_amt+2, value='총지출')
         ws.cell(row=summary_row+4, column=idx_amt+3, value=total_deposit)
+        # 총이익
         ws.cell(row=summary_row+5, column=idx_amt, value='총이익')
         ws.cell(row=summary_row+5, column=idx_amt+1, value=total_amount + total_deposit)
-    write_with_summary(df_ok, '정상')
-    write_with_summary(df_err, '문제')
+    write_with_summary(_df_ok, '정상')
+    write_with_summary(_df_err, '문제')
 buf.seek(0)
 st.download_button(
     "결산 엑셀 다운로드", buf,
