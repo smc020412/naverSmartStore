@@ -3,9 +3,6 @@ import pandas as pd
 from io import BytesIO
 import msoffcrypto  # 암호화된 엑셀 처리용
 
-# 비밀번호 변수 초기화 (NameError 방지)
-password = ""
-
 # 페이지 설정
 st.set_page_config(page_title="네이버스토어 엑셀 결산", layout="wide")
 st.title("네이버스토어 엑셀 결산 앱")
@@ -34,8 +31,6 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True,
     key="data_files"
 )
-# 사이드바에 암호 입력창 추가
-# 초기화된 password 변수를 위에서 선언했으므로 NameError 발생하지 않습니다.
 password = st.sidebar.text_input(
     "암호화된 파일 비밀번호 입력 (없으면 비워두세요)",
     type="password",
@@ -111,6 +106,11 @@ for f in uploaded_files:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     df = df[needed_cols]
     dfs.append(df)
+
+# dfs가 비어있을 경우 에러 메시지 후 중단
+if not dfs:
+    st.error("유효한 데이터가 없습니다. 업로드한 파일과 비밀번호를 확인해주세요.")
+    st.stop()
 
 # 5) 데이터 결합 및 타입 변환
 combined = pd.concat(dfs, ignore_index=True)
