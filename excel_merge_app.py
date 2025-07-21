@@ -118,8 +118,8 @@ merged = combined.groupby('주문번호', as_index=False).agg({
     '판매금액': 'sum',
     '판매수수료': 'sum',
     '택배비': 'sum',
-    '배송상태': 'first',
-    '정산현황': 'first',
+    '배송상태': lambda x: x.dropna().iloc[0] if len(x.dropna().unique()) == 1 else ' / '.join(x.dropna().unique()),
+    '정산현황': lambda x: x.dropna().iloc[0] if len(x.dropna().unique()) == 1 else ' / '.join(x.dropna().unique()),
     '기타': lambda x: ', '.join(x.dropna().unique())
 })
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
