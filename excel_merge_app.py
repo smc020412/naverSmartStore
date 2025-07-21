@@ -128,27 +128,29 @@ merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merge
 
 # 10) 정상/문제 분류 및 미리보기
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
-_df_ok = merged[mask]
-_df_err = merged[~mask]
-cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
+df_ok = merged[mask]
+df_err = merged[~mask]
+preview_cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("판매수량 및 판매금액 정상 데이터")
-st.data_editor(_df_ok[cols], num_rows="dynamic", key="ok_table")
+st.data_editor(df_ok[preview_cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
-st.data_editor(_df_err[cols], num_rows="dynamic", key="err_table")
+st.data_editor(df_err[preview_cols], num_rows="dynamic", key="err_table")
 
 # 11) 엑셀 다운로드 (2개 시트 + 요약행 추가)
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def write_with_summary(df, sheet_name):
-        df.to_excel(writer, sheet_name=sheet_name, index=False)
+        # 엑셀 칼럼 순서를 미리보기와 동일하게 정렬
+        df_to_write = df[preview_cols]
+        df_to_write.to_excel(writer, sheet_name=sheet_name, index=False)
         ws = writer.sheets[sheet_name]
-        total_qty = df['판매수량'].sum()
-        total_amount = df['판매금액'].sum()
-        total_fee = df['판매수수료'].sum()
-        total_delivery = df['택배비'].sum()
+        total_qty = df_to_write['판매수량'].sum()
+        total_amount = df_to_write['판매금액'].sum()
+        total_fee = df_to_write['판매수수료'].sum()
+        total_delivery = df_to_write['택배비'].sum()
         total_deposit = total_fee + total_delivery
         summary_row = ws.max_row + 2
-        idx_amt = list(df.columns).index('판매금액') + 1
+        idx_amt = preview_cols.index('판매금액') + 1
         # 총판매량
         ws.cell(row=summary_row, column=idx_amt, value='총판매량')
         ws.cell(row=summary_row, column=idx_amt+1, value=total_qty)
@@ -167,8 +169,8 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         # 총이익
         ws.cell(row=summary_row+5, column=idx_amt, value='총이익')
         ws.cell(row=summary_row+5, column=idx_amt+1, value=total_amount + total_deposit)
-    write_with_summary(_df_ok, '정상')
-    write_with_summary(_df_err, '문제')
+    write_with_summary(df_ok, '정상')
+    write_with_summary(df_err, '문제')
 buf.seek(0)
 st.download_button(
     "결산 엑셀 다운로드", buf,
