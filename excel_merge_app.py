@@ -42,6 +42,7 @@ column_mapping = {
     '정산완료일': '일자',
     '상품명': '판매품목',
     '옵션정보': '옵션명',
+    '옵션명': '옵션명',  # 옵션명 컬럼도 직접 매핑
     '수량': '판매수량',
     '정산기준금액(A)': '판매금액',
     '주문상태': '배송상태',
@@ -63,7 +64,13 @@ needed_cols = [
 dfs = []
 for f in uploaded_files:
     df = pd.read_excel(f, engine="openpyxl")
+    # 컬럼명 매핑
     df.rename(columns=column_mapping, inplace=True)
+    # 옵션정보와 기존 옵션명 통합
+    if '옵션정보' in df.columns:
+        df['옵션명'] = df['옵션정보']
+        df.drop(columns=['옵션정보'], inplace=True)
+    # 수수료 합산
     existing = [c for c in fee_columns if c in df.columns]
     if existing:
         df[existing] = df[existing].apply(pd.to_numeric, errors='coerce')
@@ -71,6 +78,7 @@ for f in uploaded_files:
         df.drop(columns=existing, inplace=True)
     else:
         df['판매수수료'] = 0
+    # 필요한 컬럼 채우기
     for col in needed_cols:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
@@ -94,47 +102,55 @@ if not valid_dates.empty:
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) |
                               combined['일자'].isna()]
 
-# 7) 제품 필터 (상품목록 기반 체크박스 with 전체선택)
+# 7) 제품 선택 UI (실제 필터는 병합 후 적용)
 if item_file:
     products = item_df['상품명'].dropna().unique().tolist()
     st.sidebar.header("제품 선택")
-    select_all = st.sidebar.checkbox("전체 선택", value=True)
-    if select_all:
+    select_all_products = st.sidebar.checkbox("전체 제품 선택", value=True)
+    if select_all_products:
         selected_products = products
     else:
         selected_products = [prod for prod in products if st.sidebar.checkbox(prod, value=False)]
-    combined = combined[combined['판매품목'].isin(selected_products)]
 
 # 8) 배송비 계산 및 표시 (정수, 음수)
+
+# 8) 배송비 계산 및 표시 (정수, 음수) 배송비 계산 및 표시 (정수, 음수) 및 표시 (정수, 음수)
 combined['택배비'] = combined['판매품목'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].astype(int)
 
 # 9) 주문 단위 집계 및 순수익 계산
+# 9) 주문 단위로 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
-    '일자': lambda x: x.dropna().iloc[0] if not x.dropna().empty else pd.NaT,
-    '판매품목': lambda x: x.dropna().iloc[0] if not x.dropna().empty else '',
-    '옵션명': lambda x: x.dropna().iloc[0] if not x.dropna().empty else '',
+    '일자': 'first',
+    '판매품목': 'first',
+    '옵션명': 'first',  # 첫 옵션명 유지
     '판매수량': 'sum',
     '판매금액': 'sum',
     '판매수수료': 'sum',
     '택배비': 'sum',
-    '배송상태': lambda x: ''.join(x.dropna().unique()),
-    '정산현황': lambda x: ''.join(x.dropna().unique()),
-    '기타': lambda x: ''.join(x.dropna().unique())
+    '배송상태': lambda x: next((v for v in x if pd.notna(v) and v!=''), ''),
+    '정산현황': lambda x: next((v for v in x if pd.notna(v) and v!=''), ''),
+    '기타': lambda x: ', '.join(x.dropna().unique())
 })
+# 순수익 계산
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
+
+# 9.1) 상품 선택 필터 (병합 후 적용)
+if item_file:
+    merged = merged[merged['판매품목'].isin(selected_products)]
 
 # 10) 미리보기
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
 df_ok = merged[mask]
 df_err = merged[~mask]
+# 옵션명 포함하여 컬럼 순서 지정
 preview_cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("판매수량 및 판매금액 정상 데이터")
 st.data_editor(df_ok[preview_cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
 st.data_editor(df_err[preview_cols], num_rows="dynamic", key="err_table")
 
-# 11) 엑셀 다운로드 및 요약행 추가
+# 11) 엑셀 다운로드 및 요약행 추가 및 요약행 추가 및 요약행 추가 및 요약행 추가
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def write_with_summary(df, sheet_name):
