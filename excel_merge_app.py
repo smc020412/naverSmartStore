@@ -65,16 +65,16 @@ needed_cols = [
 ]
 
 # 4) 원본 데이터 로드, 복호화 및 디버그 정보 출력
+# 디버그: 로드된 행/열 정보만 표시, 컬럼 리스트 제거
+
 dfs = []
 for f in uploaded_files:
     raw = f.read()
     file_stream = BytesIO(raw)
     df = None
-    # 일반 엑셀 읽기 시도
     try:
         df = pd.read_excel(file_stream, engine="openpyxl")
     except Exception:
-        # 암호화된 경우 복호화
         if password:
             try:
                 file_stream.seek(0)
@@ -91,15 +91,12 @@ for f in uploaded_files:
             st.sidebar.error(f"{f.name} 파일이 암호화되어 있습니다. 비밀번호를 입력해주세요.")
             continue
 
-    # 디버그: 로드한 행/열 정보 표시
     if df is not None:
         st.sidebar.write(f"{f.name} 로드됨: 행 {df.shape[0]}, 열 {df.shape[1]}")
-        st.sidebar.write("컬럼:", df.columns.tolist())
     else:
         st.sidebar.warning(f"{f.name} 데이터가 없습니다.")
         continue
 
-    # 컬럼명 매핑 및 전처리
     df.rename(columns=column_mapping, inplace=True)
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']
@@ -119,12 +116,10 @@ for f in uploaded_files:
     df = df[needed_cols]
     dfs.append(df)
 
-# dfs가 비어있을 경우 중단
 if not dfs:
     st.error("유효한 데이터가 없습니다. 업로드한 파일과 비밀번호를 확인해주세요.")
     st.stop()
 
-# 5) 데이터 결합 및 타입 변환
 combined = pd.concat(dfs, ignore_index=True)
 combined['일자'] = pd.to_datetime(combined['일자'], errors='coerce')
 for c in ['판매수량','판매금액','판매수수료']:
@@ -140,7 +135,6 @@ if not valid_dates.empty:
         start, end = dr
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) |
                               combined['일자'].isna()]
-
 # 7) 제품 선택 UI (실제 필터는 병합 후 적용)
 if item_file:
     products = item_df['상품명'].dropna().unique().tolist()
