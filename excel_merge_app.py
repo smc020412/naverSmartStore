@@ -134,16 +134,8 @@ st.subheader("판매수량 및 판매금액 정상 데이터")
 st.data_editor(df_ok[preview_cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
 st.data_editor(df_err[preview_cols], num_rows="dynamic", key="err_table")
-mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
-df_ok = merged[mask]
-df_err = merged[~mask]
-preview_cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
-st.subheader("판매수량 및 판매금액 정상 데이터")
-st.data_editor(df_ok[preview_cols], num_rows="dynamic", key="ok_table")
-st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
-st.data_editor(df_err[preview_cols], num_rows="dynamic", key="err_table")
 
-# 11) 엑셀 다운로드 및 요약행 추가 및 요약행 추가
+# 11) 엑셀 다운로드 및 요약행 추가 및 요약행 추가 및 요약행 추가 및 요약행 추가
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def write_with_summary(df, sheet_name):
