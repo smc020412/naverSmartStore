@@ -156,49 +156,52 @@ st.data_editor(df_err[preview_cols], num_rows="dynamic", key="err_table")
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def write_with_summary(df, sheet_name):
-        df_to_write = df[preview_cols]
-        df_to_write.to_excel(writer, sheet_name=sheet_name, index=False)
-        ws = writer.sheets[sheet_name]
-        total_qty = df_to_write['판매수량'].sum()
-        total_amount = df_to_write['판매금액'].sum()
-        total_fee = df_to_write['판매수수료'].sum()
-        total_delivery = df_to_write['택배비'].sum()
-        total_deposit = total_fee + total_delivery
-        summary_row = ws.max_row + 2
-        idx_amt = preview_cols.index('판매금액') + 1
-        ws.cell(row=summary_row, column=idx_amt, value='총판매량')
-        ws.cell(row=summary_row, column=idx_amt+1, value=total_qty)
-        ws.cell(row=summary_row+1, column=idx_amt, value='총금액')
-        ws.cell(row=summary_row+1, column=idx_amt+1, value=total_amount)
-        ws.cell(row=summary_row+2, column=idx_amt+2, value='총수수료')
-        ws.cell(row=summary_row+2, column=idx_amt+3, value=total_fee)
-        ws.cell(row=summary_row+3, column=idx_amt+2, value='총택배비')
-        ws.cell(row=summary_row+3, column=idx_amt+3, value=total_delivery)
-        ws.cell(row=summary_row+4, column=idx_amt+2, value='총지출')
-        ws.cell(row=summary_row+4, column=idx_amt+3, value=total_deposit)
-        ws.cell(row=summary_row+5, column=idx_amt, value='총이익')
-        ws.cell(row=summary_row+5, column=idx_amt+1, value=total_amount + total_deposit)
-                # 요약행: 빠른정산(정산현황) 및 주요 배송 상태별 수량
-                # 빠른정산 수량 (정산현황이 '빠른정산')
-        qty_fast = df_to_write.loc[df_to_write['정산현황'] == '빠른정산', '판매수량'].sum()
-        ws.cell(row=summary_row+7, column=idx_amt, value='빠른정산 수량')
-        ws.cell(row=summary_row+7, column=idx_amt+1, value=qty_fast)
-        # 취소 수량 (정산현황이 '취소')
-        qty_cancel = df_to_write.loc[df_to_write['정산현황'] == '취소', '판매수량'].sum()
-        ws.cell(row=summary_row+8, column=idx_amt, value='취소 수량')
-        ws.cell(row=summary_row+8, column=idx_amt+1, value=qty_cancel)
-        # 배송 상태별 수량
-        delivery_statuses = ['배송중','배송완료','구매확정']
-        for j, status in enumerate(delivery_statuses):
-            qty = df_to_write.loc[df_to_write['배송상태'] == status, '판매수량'].sum()
-            ws.cell(row=summary_row+9+j, column=idx_amt, value=f'{status} 수량')
-            ws.cell(row=summary_row+9+j, column=idx_amt+1, value=qty)
-    write_with_summary(df_ok, '정상')
-            qty = df_to_write.loc[df_to_write['배송상태'] == status, '판매수량'].sum()
-            ws.cell(row=summary_row+8+j, column=idx_amt, value=f'{status} 수량')
-            ws.cell(row=summary_row+8+j, column=idx_amt+1, value=qty)
-    write_with_summary(df_ok, '정상')
-    write_with_summary(df_err, '문제')
+    # 프리뷰와 동일한 순서로 칼럼 정렬
+    df_to_write = df[preview_cols]
+    # 시트에 데이터 쓰기
+    df_to_write.to_excel(writer, sheet_name=sheet_name, index=False)
+    ws = writer.sheets[sheet_name]
+
+    # 합계 계산
+    total_qty = df_to_write['판매수량'].sum()
+    total_amount = df_to_write['판매금액'].sum()
+    total_fee = df_to_write['판매수수료'].sum()
+    total_delivery = df_to_write['택배비'].sum()
+    total_deposit = total_fee + total_delivery
+
+    # 요약행 추가
+    summary_row = ws.max_row + 2
+    idx_amt = preview_cols.index('판매금액') + 1
+
+    ws.cell(row=summary_row,   column=idx_amt,   value='총판매량')
+    ws.cell(row=summary_row,   column=idx_amt+1, value=total_qty)
+    ws.cell(row=summary_row+1, column=idx_amt,   value='총금액')
+    ws.cell(row=summary_row+1, column=idx_amt+1, value=total_amount)
+    ws.cell(row=summary_row+2, column=idx_amt+2, value='총수수료')
+    ws.cell(row=summary_row+2, column=idx_amt+3, value=total_fee)
+    ws.cell(row=summary_row+3, column=idx_amt+2, value='총택배비')
+    ws.cell(row=summary_row+3, column=idx_amt+3, value=total_delivery)
+    ws.cell(row=summary_row+4, column=idx_amt+2, value='총지출')
+    ws.cell(row=summary_row+4, column=idx_amt+3, value=total_deposit)
+    ws.cell(row=summary_row+5, column=idx_amt,   value='총이익')
+    ws.cell(row=summary_row+5, column=idx_amt+1, value=total_amount + total_deposit)
+
+    # 상태별 수량: 빠른정산, 취소, 배송중, 배송완료, 구매확정
+    statuses = [
+        ('빠른정산 수량', '정산현황', '빠른정산'),
+        ('취소 수량',     '정산현황', '취소'),
+        ('배송중 수량',   '배송상태', '배송중'),
+        ('배송완료 수량', '배송상태', '배송완료'),
+        ('구매확정 수량', '배송상태', '구매확정'),
+    ]
+    for i, (label, col, status_val) in enumerate(statuses, start=7):
+        qty = df_to_write.loc[df_to_write[col] == status_val, '판매수량'].sum()
+        ws.cell(row=summary_row + i, column=idx_amt,   value=label)
+        ws.cell(row=summary_row + i, column=idx_amt+1, value=qty)
+
+# 정상/문제 시트 생성
+write_with_summary(df_ok, '정상')
+write_with_summary(df_err, '문제')
 buf.seek(0)
 st.download_button(
     "결산 엑셀 다운로드", buf,
