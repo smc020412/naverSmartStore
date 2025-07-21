@@ -69,6 +69,7 @@ for f in uploaded_files:
     if existing:
         df[existing] = df[existing].apply(pd.to_numeric, errors='coerce')
         df['판매수수료'] = df[existing].sum(axis=1)
+        df.drop(columns=existing, inplace=True)
     else:
         df['판매수수료'] = 0
     # 필요한 컬럼 채우기
@@ -95,13 +96,15 @@ if not valid_dates.empty:
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) |
                               combined['일자'].isna()]
 
-# 7) 제품 필터 (상품목록 기반)
+# 7) 제품 필터 (상품목록 기반 체크박스)
 if item_file:
     products = item_df['상품명'].dropna().unique().tolist()
-    selected = st.sidebar.multiselect(
-        "제품 선택", options=products, default=products
-    )
-    combined = combined[combined['판매품목'].isin(selected)]
+    st.sidebar.header("제품 선택")
+    selected_products = []
+    for prod in products:
+        if st.sidebar.checkbox(prod, value=True):
+            selected_products.append(prod)
+    combined = combined[combined['판매품목'].isin(selected_products)]
 
 # 8) 배송비 계산: 제품명 매칭 후 수량 곱하기 (없으면 0), 정수형, 음수표시
 combined['택배비'] = combined['판매품목'].map(shipping_map).fillna(0) * combined['판매수량']
