@@ -11,7 +11,8 @@ st.title("네이버스토어 엑셀 결산 앱")
 uploaded_files = st.file_uploader(
     "네이버스토어 엑셀 파일 업로드 (여러 개 가능)",
     type=["xlsx"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
+    key="uploader"
 )
 
 if not uploaded_files:
@@ -36,6 +37,7 @@ else:
         '무이자할부 수수료(D)'
     ]
 
+    # 3) 파일별 데이터프레임 생성
     dfs = []
     for file in uploaded_files:
         df = pd.read_excel(file)
@@ -55,7 +57,7 @@ else:
         df = df.reindex(columns=needed)
         dfs.append(df)
 
-    # 3) 병합
+    # 4) 병합 및 집계
     combined = pd.concat(dfs, ignore_index=True)
     merged = combined.groupby('주문번호', as_index=False).agg({
         '일자': 'first',
@@ -64,50 +66,37 @@ else:
         '판매수량': 'sum',
         '판매금액': 'sum',
         '판매수수료': 'sum',
-        '택배비': 'first',  # 입력된 택배비 유지
+        '택배비': 'first',
         '배송상태': lambda x: ', '.join(x.dropna().unique()),
         '정산현황': lambda x: ', '.join(x.dropna().unique()),
         '기타': lambda x: ', '.join(x.dropna().unique())
     })
 
-    # 4) 타입 변환
+    # 5) 타입 변환
     merged['일자'] = pd.to_datetime(merged['일자'], errors='coerce')
     for col in ['판매수량','판매금액','판매수수료','택배비']:
         merged[col] = pd.to_numeric(merged[col], errors='coerce').fillna(0).astype(int)
-    for col in ['주문번호','판매품목','옵션명','배송상태','정산현황','기타']:
-        merged[col] = merged[col].fillna('').astype(str)
+    merged[['주문번호','판매품목','옵션명','배송상태','정산현황','기타']] = \
+        merged[['주문번호','판매품목','옵션명','배송상태','정산현황','기타']].astype(str)
 
-    # 5) 날짜 범위 필터
+    # 6) 날짜 범위 필터
     st.sidebar.header("날짜 범위 필터")
     valid = merged['일자'].dropna().dt.date
     if not valid.empty:
         mn, mx = valid.min(), valid.max()
         dr = st.sidebar.date_input(
-            "날짜 범위 선택", value=(mn, mx), min_value=mn, max_value=mx
+            "날짜 범위 선택", value=(mn, mx), min_value=mn, max_value=mx,
+            key="date_range"
         )
-        if isinstance(dr, tuple) and len(dr) == 2:
+        if isinstance(dr, tuple) and len(dr)==2:
             start, end = dr
-            merged = merged[((merged['일자'].dt.date >= start) & (merged['일자'].dt.date <= end)) | merged['일자'].isna()]
+            merged = merged[(merged['일자'].dt.date>=start)&(merged['일자'].dt.date<=end)]
 
-    # 5.1) 택배비 입력
-    st.sidebar.header("택배비 설정")
-    delivery_fee = st.sidebar.number_input("택배비 (정수)", min_value=0, value=0)
+    # 7) 결과 미리보기
+    st.subheader("결산 데이터 미리보기")
+    st.data_editor(merged, num_rows="dynamic", key="main_table")
 
-    # 6) 정상/문제 구분
-    df_ok = merged[(merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()]
-    df_err = merged[(merged['판매수량'] == 0) | (merged['판매금액'] == 0) | merged['일자'].isna()]
-
-    # 6.1) 택배비 컬럼 업데이트 (모두 입력된 택배비로 설정)
-    df_ok['택배비'] = delivery_fee
-    df_err['택배비'] = delivery_fee
-
-    # 7) 표시
-    st.subheader("판매수량 및 판매금액 정상 데이터")
-    st.data_editor(df_ok, num_rows="dynamic", key="ok_table")
-    st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
-    st.data_editor(df_err, num_rows="dynamic", key="err_table")
-
-    # 8) 엑셀 다운로드 (2개의 시트 + 요약행 추가)
+    # 8) 엑셀 다운로드 (요약행 추가)
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         def write_with_summary(df, sheet_name):
@@ -116,35 +105,28 @@ else:
             total_qty = df['판매수량'].sum()
             total_amount = df['판매금액'].sum()
             total_fee = df['판매수수료'].sum()
-            total_delivery = -(total_qty * delivery_fee)
-            total_deposit = total_fee + total_delivery
-            summary_row = ws.max_row + 2  # 한 칸 내려서 시작
+            total_delivery = df['택배비'].sum()
+            # 요약 시작 행
+            sr = ws.max_row + 2
             # 총판매량
-            col_qty = list(df.columns).index('판매금액') + 1
-            ws.cell(row=summary_row, column=col_qty, value='총판매량')
-            ws.cell(row=summary_row, column=col_qty+1, value=total_qty)
+            col_qty = list(df.columns).index('판매수량') + 1
+            ws.cell(row=sr, column=col_qty, value='총판매량')
+            ws.cell(row=sr, column=col_qty+1, value=total_qty)
             # 총금액
             col_amt = list(df.columns).index('판매금액') + 1
-            ws.cell(row=summary_row+1, column=col_amt, value='총금액')
-            ws.cell(row=summary_row+1, column=col_amt+1, value=total_amount)
+            ws.cell(row=sr+1, column=col_amt, value='총금액')
+            ws.cell(row=sr+1, column=col_amt+1, value=total_amount)
             # 총수수료
-            ws.cell(row=summary_row+2, column=col_amt+2, value='총수수료')
-            ws.cell(row=summary_row+2, column=col_amt+3, value=total_fee)
+            ws.cell(row=sr+2, column=col_amt, value='총수수료')
+            ws.cell(row=sr+2, column=col_amt+1, value=total_fee)
             # 총택배비
-            ws.cell(row=summary_row+3, column=col_amt+2, value='총택배비')
-            ws.cell(row=summary_row+3, column=col_amt+3, value= total_delivery)
-
-            # 총지출
-            ws.cell(row=summary_row+4, column=col_amt+2, value='총지출')
-            ws.cell(row=summary_row+4, column=col_amt+3, value= total_deposit)
-
+            ws.cell(row=sr+3, column=col_amt, value='총택배비')
+            ws.cell(row=sr+3, column=col_amt+1, value=total_delivery)
             # 총이익
-            ws.cell(row=summary_row+5, column=col_amt, value='총이익')
-            ws.cell(row=summary_row+5, column=col_amt+1, value=total_amount + total_fee + total_delivery)
-            
+            ws.cell(row=sr+4, column=col_amt, value='총이익')
+            ws.cell(row=sr+4, column=col_amt+1, value=total_amount + total_fee - total_delivery)
 
-        write_with_summary(df_ok, '정상')
-        write_with_summary(df_err, '문제')
+        write_with_summary(merged, '결산')
 
     buf.seek(0)
     st.download_button(
