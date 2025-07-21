@@ -42,7 +42,6 @@ column_mapping = {
     '정산완료일': '일자',
     '상품명': '판매품목',
     '옵션정보': '옵션명',
-    '옵션명': '옵션명',  # 옵션명 컬럼도 직접 매핑
     '수량': '판매수량',
     '정산기준금액(A)': '판매금액',
     '주문상태': '배송상태',
@@ -123,7 +122,7 @@ combined['택배비'] = -combined['택배비'].astype(int)
 merged = combined.groupby('주문번호', as_index=False).agg({
     '일자': 'first',
     '판매품목': 'first',
-    '옵션명': 'first',  # 첫 옵션명 유지
+    '옵션명': lambda x: x[x.notna() & (x!='')].iloc[0] if not x[x.notna() & (x!='')].empty else '',  # 첫 번째 유효 옵션명  # 첫 옵션명 유지
     '판매수량': 'sum',
     '판매금액': 'sum',
     '판매수수료': 'sum',
