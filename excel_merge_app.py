@@ -18,7 +18,6 @@ shipping_fee_file = st.sidebar.file_uploader(
 if shipping_fee_file:
     try:
         shipping_df = pd.read_excel(shipping_fee_file, engine="openpyxl")
-        # 상품번호 → 배송비 사전 매핑
         shipping_map = dict(zip(shipping_df['상품번호'], shipping_df['배송비']))
         st.sidebar.success(f"배송비 매핑 정보 {len(shipping_map)}건 로드됨")
     except Exception as e:
@@ -66,7 +65,7 @@ if not file_dfs:
 
 column_mapping = {
     '주문번호': '주문번호',
-    '상품번호': '상품번호',           # 상품번호 컬럼 유지
+    '상품번호': '상품번호',
     '정산완료일': '일자',
     '상품명': '판매품목',
     '옵션정보': '옵션명',
@@ -83,14 +82,12 @@ needed_cols = [
     '배송상태','정산현황','기타'
 ]
 
-# 데이터 전처리
 dfs = []
 for df in file_dfs:
     df.rename(columns=column_mapping, inplace=True)
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']
         df.drop(columns=['옵션정보'], inplace=True)
-    # 누락 컬럼 채우기
     for col in needed_cols:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
@@ -98,7 +95,6 @@ for df in file_dfs:
 
 combined = pd.concat(dfs, ignore_index=True)
 combined['일자'] = pd.to_datetime(combined['일자'], errors='coerce')
-# 숫자형 칼럼 정리
 for col in ['판매수량','판매금액','판매수수료']:
     combined[col] = pd.to_numeric(combined[col], errors='coerce').fillna(0).astype(int)
 
@@ -116,8 +112,9 @@ if not valid_dates.empty:
 combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].astype(int)
 
-# 7) 주문 단위 집계 및 순수익 계산
+# 7) 주문 단위 집계 및 순수익 계산 (상품번호 포함)
 merged = combined.groupby('주문번호', as_index=False).agg({
+    '상품번호': 'first',
     '일자': 'first',
     '판매품목': 'first',
     '옵션명': lambda x: x[x.notna() & (x!='')].iloc[0] if not x[x.notna() & (x!='')].empty else '',
@@ -155,14 +152,12 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         total_deposit = total_fee + total_delivery
         summary_row = ws.max_row + 2
         idx_amt = preview_cols.index('판매금액') + 1
-        # 요약행 작성
         ws.cell(row=summary_row, column=idx_amt, value='총판매량'); ws.cell(row=summary_row, column=idx_amt+1, value=total_qty)
         ws.cell(row=summary_row+1, column=idx_amt, value='총금액'); ws.cell(row=summary_row+1, column=idx_amt+1, value=total_amount)
         ws.cell(row=summary_row+2, column=idx_amt+2, value='총수수료'); ws.cell(row=summary_row+2, column=idx_amt+3, value=total_fee)
         ws.cell(row=summary_row+3, column=idx_amt+2, value='총택배비'); ws.cell(row=summary_row+3, column=idx_amt+3, value=total_delivery)
         ws.cell(row=summary_row+4, column=idx_amt+2, value='총지출'); ws.cell(row=summary_row+4, column=idx_amt+3, value=total_deposit)
         ws.cell(row=summary_row+5, column=idx_amt, value='총이익'); ws.cell(row=summary_row+5, column=idx_amt+1, value=total_amount + total_deposit)
-        # 빠른정산 및 배송상태별 수량 요약
         qty_fast = df_to_write.loc[df_to_write['정산현황']=='빠른정산','판매수량'].sum()
         ws.cell(row=summary_row+7, column=idx_amt, value='빠른정산 수량'); ws.cell(row=summary_row+7, column=idx_amt+1, value=qty_fast)
         for j, status in enumerate(['배송중','배송완료','구매확정']):
