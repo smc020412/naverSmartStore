@@ -4,11 +4,11 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-# 0) 페이지 설정
+# 페이지 설정
 st.set_page_config(page_title="네이버스토어 엑셀 결산", layout="wide")
 st.title("네이버스토어 엑셀 결산 앱")
 
-# 1) 아산율림_제품목록 파일 업로드 (선택)
+# 1) 아산율림_제품목록 파일 업로드 (선택) 및 배송비 매핑
 shipping_map = {}
 item_file = st.sidebar.file_uploader(
     "아산율림_제품목록 파일 업로드 (선택)",
@@ -23,7 +23,7 @@ if item_file:
     except Exception as e:
         st.sidebar.error(f"상품목록 파일 처리 중 오류: {e}")
 else:
-    st.sidebar.info("상품목록 파일이 없으면 기본 위젯 택배비가 사용됩니다.")
+    st.sidebar.info("상품목록 파일이 없으면 배송비는 0으로 처리됩니다.")
 
 # 2) 네이버스토어 엑셀 파일 업로드 (여러 개)
 uploaded_files = st.file_uploader(
@@ -64,7 +64,6 @@ needed_cols = [
 dfs = []
 for f in uploaded_files:
     df = pd.read_excel(f, engine="openpyxl")
-    # 컬럼명 매핑
     df.rename(columns=column_mapping, inplace=True)
     # 수수료 합산
     existing = [c for c in fee_columns if c in df.columns]
@@ -74,7 +73,7 @@ for f in uploaded_files:
         df.drop(columns=existing, inplace=True)
     else:
         df['판매수수료'] = 0
-    # 필요한 컬럼만 유지 및 누락 컬럼 채우기
+    # 필요한 컬럼 추가 및 순서 맞추기
     for col in needed_cols:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료','원본택배비'] else ''
@@ -96,7 +95,7 @@ merged = combined.groupby('주문번호', as_index=False).agg({
     '기타': lambda x: ', '.join(x.dropna().unique())
 })
 
-# 타입 정리
+# 6) 타입 정리
 date_cols = ['일자']
 for c in date_cols:
     merged[c] = pd.to_datetime(merged[c], errors='coerce')
@@ -104,7 +103,7 @@ num_cols = ['판매수량','판매금액','판매수수료','원본택배비']
 for c in num_cols:
     merged[c] = pd.to_numeric(merged[c], errors='coerce').fillna(0).astype(int)
 
-# 6) 날짜 필터
+# 7) 날짜 필터
 st.sidebar.header("날짜 범위 필터")
 valid = merged['일자'].dropna().dt.date
 if not valid.empty:
@@ -115,15 +114,8 @@ if not valid.empty:
         merged = merged[((merged['일자'].dt.date>=start)&(merged['일자'].dt.date<=end))|
                          merged['일자'].isna()]
 
-# 7) 기본 택배비 설정 위젯
-st.sidebar.header("택배비 설정")
-delivery_fee = st.sidebar.number_input("택배비 (정수)", min_value=0, value=0)
-
-# 8) 택배비 계산: 제품목록 맵이 있으면 해당 배송비, 없으면 기본값, 모두 수량 곱하기
-merged['택배비'] = merged.apply(
-    lambda r: shipping_map.get(r['판매품목'], delivery_fee) * r['판매수량'],
-    axis=1
-)
+# 8) 배송비 계산: 제품명 매칭 후 수량 곱하기 (없으면 0)
+merged['택배비'] = merged['판매품목'].map(shipping_map).fillna(0) * merged['판매수량']
 
 # 9) 정상/문제 데이터 분류 및 미리보기
 mask = (merged['판매수량']>0)&(merged['판매금액']>0)&merged['일자'].notna()
@@ -163,6 +155,5 @@ buf.seek(0)
 st.download_button(
     "결산 엑셀 다운로드", buf,
     file_name="네이버스토어_결산_결과.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    key="download_button"
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
