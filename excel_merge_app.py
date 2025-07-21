@@ -84,7 +84,7 @@ if not dates.empty:
         start, end = dr
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) | combined['일자'].isna()]
 
-# 6) 제품 선택 필터 (체크박스)
+# 6) 제품 선택 필터
 st.sidebar.header("제품 선택")
 prod_map = combined[['상품번호','판매품목']].drop_duplicates().dropna().reset_index(drop=True)
 select_all = st.sidebar.checkbox("전체 선택", value=True, key="sel_all")
@@ -93,8 +93,7 @@ if select_all:
 else:
     sel_nums = []
     for idx, row in prod_map.iterrows():
-        cb_key = f"prod_cb_{idx}"
-        if st.sidebar.checkbox(label=row['판매품목'], value=False, key=cb_key):
+        if st.sidebar.checkbox(label=row['판매품목'], value=False, key=f"prod_cb_{idx}"):
             sel_nums.append(row['상품번호'])
 if not select_all and not sel_nums:
     combined = combined.iloc[0:0]
@@ -121,20 +120,32 @@ cols = ['주문번호','일자','판매품목','옵션명','판매수량','판�
 st.subheader("정상 데이터"); st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
 st.subheader("문제 데이터"); st.data_editor(df_err[cols], num_rows="dynamic", key="err")
 
-# 10) 엑셀 다운로드
+# 10) 엑셀 다운로드 및 요약행 추가
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def save(df, name):
-        df[cols].to_excel(writer, sheet_name=name, index=False)
+        ws_df = df[cols]
+        ws_df.to_excel(writer, sheet_name=name, index=False)
         ws = writer.sheets[name]
-        sums = {c:df[c].sum() for c in ['판매수량','판매금액','판매수수료','택배비']}
-        r = ws.max_row+2; j = cols.index('판매금액')+1
-        ws.cell(r, j, '총판매량'); ws.cell(r, j+1, sums['판매수량'])
-        ws.cell(r+1, j, '총금액'); ws.cell(r+1, j+1, sums['판매금액'])
-        ws.cell(r+2, j+2, '총수수료'); ws.cell(r+2, j+3, sums['판매수수료'])
-        ws.cell(r+3, j+2, '총택배비'); ws.cell(r+3, j+3, sums['택배비'])
-        ws.cell(r+4, j+2, '총지출'); ws.cell(r+4, j+3, sums['판매수수료']+sums['택배비'])
-        ws.cell(r+5, j, '총이익'); ws.cell(r+5, j+1, sums['판매금액'] - sums['판매수수료'] + sums['택배비'])
-    save(df_ok, '정상'); save(df_err, '문제')
+        sums = {c: ws_df[c].sum() for c in ['판매수량','판매금액','판매수수료','택배비']}
+        r = ws.max_row + 2
+        j = cols.index('판매금액') + 1
+        # 기본 요약
+        ws.cell(row=r, column=j, value='총판매량');       ws.cell(row=r,   column=j+1, value=sums['판매수량'])
+        ws.cell(row=r+1, column=j, value='총금액');         ws.cell(row=r+1, column=j+1, value=sums['판매금액'])
+        ws.cell(row=r+2, column=j+2, value='총수수료');    ws.cell(row=r+2, column=j+3, value=sums['판매수수료'])
+        ws.cell(row=r+3, column=j+2, value='총택배비');    ws.cell(row=r+3, column=j+3, value=sums['택배비'])
+        ws.cell(row=r+4, column=j+2, value='총지출');     ws.cell(row=r+4, column=j+3, value=sums['판매수수료'] + sums['택배비'])
+        ws.cell(row=r+5, column=j, value='총이익');        ws.cell(row=r+5, column=j+1, value=sums['판매금액'] - sums['판매수수료'] + sums['택배비'])
+        # 빠른정산 수량
+        qty_fast = ws_df.loc[ws_df['정산현황']=='빠른정산','판매수량'].sum()
+        ws.cell(row=r+7, column=j, value='빠른정산 수량'); ws.cell(row=r+7, column=j+1, value=qty_fast)
+        # 배송 상태별 수량
+        for k, status in enumerate(['배송중','배송완료','구매확정']):
+            qty = ws_df.loc[ws_df['배송상태']==status,'판매수량'].sum()
+            ws.cell(row=r+8+k, column=j, value=f'{status} 수량'); ws.cell(row=r+8+k, column=j+1, value=qty)
+    save(df_ok, '정상')
+    save(df_err, '문제')
 buf.seek(0)
 st.download_button("결산 엑셀 다운로드", buf, file_name="결과.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
