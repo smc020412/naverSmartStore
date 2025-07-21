@@ -111,15 +111,15 @@ combined['택배비'] = -combined['택배비'].astype(int)
 
 # 9) 주문 단위 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
-    '일자': 'first',
-    '판매품목': 'first',
-    '옵션명': 'first',
+    '일자': lambda x: x.dropna().iloc[0] if not x.dropna().empty else pd.NaT,
+    '판매품목': lambda x: x.dropna().iloc[0] if not x.dropna().empty else '',
+    '옵션명': lambda x: x.dropna().iloc[0] if not x.dropna().empty else '',
     '판매수량': 'sum',
     '판매금액': 'sum',
     '판매수수료': 'sum',
     '택배비': 'sum',
-    '배송상태': 'first',
-    '정산현황': 'first',
+    '배송상태': lambda x: x.dropna().iloc[0] if not x.dropna().empty else '',
+    '정산현황': lambda x: x.dropna().iloc[0] if not x.dropna().empty else '',
     '기타': lambda x: ', '.join(x.dropna().unique())
 })
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
