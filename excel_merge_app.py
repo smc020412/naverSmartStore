@@ -1,8 +1,10 @@
-# excel_merge_app.py
-
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+import msoffcrypto  # 암호화된 엑셀 처리용
+
+# 비밀번호 변수 초기화 (NameError 방지)
+password = ""
 
 # 페이지 설정
 st.set_page_config(page_title="네이버스토어 엑셀 결산", layout="wide")
@@ -32,6 +34,14 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True,
     key="data_files"
 )
+# 사이드바에 암호 입력창 추가
+# 초기화된 password 변수를 위에서 선언했으므로 NameError 발생하지 않습니다.
+password = st.sidebar.text_input(
+    "암호화된 파일 비밀번호 입력 (없으면 비워두세요)",
+    type="password",
+    key="file_password"
+)
+
 if not uploaded_files:
     st.info("하나 이상의 네이버스토어 엑셀 파일을 업로드해주세요.")
     st.stop()
@@ -62,14 +72,11 @@ needed_cols = [
 # 4) 원본 데이터 로드 및 전처리
 dfs = []
 for f in uploaded_files:
-    # 바이트로 읽어 복호화/일반 파일 모두 처리
     raw = f.read()
     file_stream = BytesIO(raw)
     try:
-        # 일반 엑셀 읽기 시도
         df = pd.read_excel(file_stream, engine="openpyxl")
     except Exception:
-        # 암호화된 파일일 경우
         if password:
             try:
                 file_stream.seek(0)
@@ -86,13 +93,11 @@ for f in uploaded_files:
             st.sidebar.error(f"{f.name} 파일이 암호화되어 있습니다. 비밀번호를 입력해주세요.")
             continue
 
-    # 컬럼명 매핑
     df.rename(columns=column_mapping, inplace=True)
-    # 옵션정보와 기존 옵션명 통합
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']
         df.drop(columns=['옵션정보'], inplace=True)
-    # 수수료 합산
+
     existing = [c for c in fee_columns if c in df.columns]
     if existing:
         df[existing] = df[existing].apply(pd.to_numeric, errors='coerce')
@@ -100,13 +105,13 @@ for f in uploaded_files:
         df.drop(columns=existing, inplace=True)
     else:
         df['판매수수료'] = 0
-    # 필요한 컬럼 채우기
+
     for col in needed_cols:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     df = df[needed_cols]
     dfs.append(df)
-    
+
 # 5) 데이터 결합 및 타입 변환
 combined = pd.concat(dfs, ignore_index=True)
 combined['일자'] = pd.to_datetime(combined['일자'], errors='coerce')
