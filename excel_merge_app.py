@@ -62,7 +62,30 @@ needed_cols = [
 # 4) 원본 데이터 로드 및 전처리
 dfs = []
 for f in uploaded_files:
-    df = pd.read_excel(f, engine="openpyxl")
+    # 바이트로 읽어 복호화/일반 파일 모두 처리
+    raw = f.read()
+    file_stream = BytesIO(raw)
+    try:
+        # 일반 엑셀 읽기 시도
+        df = pd.read_excel(file_stream, engine="openpyxl")
+    except Exception:
+        # 암호화된 파일일 경우
+        if password:
+            try:
+                file_stream.seek(0)
+                office_file = msoffcrypto.OfficeFile(file_stream)
+                office_file.load_key(password=password)
+                decrypted = BytesIO()
+                office_file.decrypt(decrypted)
+                decrypted.seek(0)
+                df = pd.read_excel(decrypted, engine="openpyxl")
+            except Exception as e2:
+                st.sidebar.error(f"{f.name} 파일 열기 실패: {e2}")
+                continue
+        else:
+            st.sidebar.error(f"{f.name} 파일이 암호화되어 있습니다. 비밀번호를 입력해주세요.")
+            continue
+
     # 컬럼명 매핑
     df.rename(columns=column_mapping, inplace=True)
     # 옵션정보와 기존 옵션명 통합
@@ -83,7 +106,7 @@ for f in uploaded_files:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     df = df[needed_cols]
     dfs.append(df)
-
+    
 # 5) 데이터 결합 및 타입 변환
 combined = pd.concat(dfs, ignore_index=True)
 combined['일자'] = pd.to_datetime(combined['일자'], errors='coerce')
