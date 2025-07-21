@@ -24,7 +24,7 @@ if item_file:
 else:
     st.sidebar.info("상품목록 파일이 없으면 모든 제품을 표시하고 배송비는 0으로 처리됩니다.")
 
-# 2) 네이버스토어 엑셀 파일 업로드 (여러 개 가능)
+# 2) 네이버스토어 엑셀 파일 업로드 (여러 개 가능) & 비밀번호 입력
 uploaded_files = st.file_uploader(
     "네이버스토어 엑셀 파일 업로드 (여러 개 가능)",
     type=["xlsx"],
@@ -64,14 +64,17 @@ needed_cols = [
     '배송상태','정산현황','기타'
 ]
 
-# 4) 원본 데이터 로드 및 전처리
+# 4) 원본 데이터 로드, 복호화 및 디버그 정보 출력
 dfs = []
 for f in uploaded_files:
     raw = f.read()
     file_stream = BytesIO(raw)
+    df = None
+    # 일반 엑셀 읽기 시도
     try:
         df = pd.read_excel(file_stream, engine="openpyxl")
     except Exception:
+        # 암호화된 경우 복호화
         if password:
             try:
                 file_stream.seek(0)
@@ -88,6 +91,15 @@ for f in uploaded_files:
             st.sidebar.error(f"{f.name} 파일이 암호화되어 있습니다. 비밀번호를 입력해주세요.")
             continue
 
+    # 디버그: 로드한 행/열 정보 표시
+    if df is not None:
+        st.sidebar.write(f"{f.name} 로드됨: 행 {df.shape[0]}, 열 {df.shape[1]}")
+        st.sidebar.write("컬럼:", df.columns.tolist())
+    else:
+        st.sidebar.warning(f"{f.name} 데이터가 없습니다.")
+        continue
+
+    # 컬럼명 매핑 및 전처리
     df.rename(columns=column_mapping, inplace=True)
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']
@@ -107,7 +119,7 @@ for f in uploaded_files:
     df = df[needed_cols]
     dfs.append(df)
 
-# dfs가 비어있을 경우 에러 메시지 후 중단
+# dfs가 비어있을 경우 중단
 if not dfs:
     st.error("유효한 데이터가 없습니다. 업로드한 파일과 비밀번호를 확인해주세요.")
     st.stop()
