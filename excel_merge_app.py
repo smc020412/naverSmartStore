@@ -165,4 +165,4 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     write_with_summary(df_ok, '정상')
     write_with_summary(df_err, '문제')
 buf.seek(0)
-st.download_button("결산 엑셀 다운로드", buf, file_name="결과.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+st.download_button("결산 엑셀 다운로드", buf, file_name="네이버스토어_결산파일.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
