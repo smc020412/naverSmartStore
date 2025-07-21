@@ -111,20 +111,31 @@ combined['택배비'] = -combined['택배비'].astype(int)
 
 # 9) 주문 단위 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
-    '일자': lambda x: x.dropna().iloc[0] if not x.dropna().empty else pd.NaT,
-    '판매품목': lambda x: x.dropna().iloc[0] if not x.dropna().empty else '',
-    '옵션명': lambda x: x.dropna().iloc[0] if not x.dropna().empty else '',
+    '일자': 'first',
+    '판매품목': 'first',
+    '옵션명': 'first',  # 옵션명 포함
     '판매수량': 'sum',
     '판매금액': 'sum',
     '판매수수료': 'sum',
     '택배비': 'sum',
-    '배송상태': lambda x: ''.join(x.dropna().unique()),
-    '정산현황': lambda x: ''.join(x.dropna().unique()),
-    '기타': lambda x: ''.join(x.dropna().unique())
+    # 첫 번째 유효 배송상태 가져오기
+    '배송상태': lambda x: next((v for v in x if pd.notna(v) and v!=''), ''),
+    # 첫 번째 유효 정산현황 가져오기
+    '정산현황': lambda x: next((v for v in x if pd.notna(v) and v!=''), ''),
+    '기타': lambda x: ', '.join(x.dropna().unique())
 })
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
 
 # 10) 미리보기
+mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
+df_ok = merged[mask]
+df_err = merged[~mask]
+# preview_cols에 옵션명 포함 확인
+preview_cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
+st.subheader("판매수량 및 판매금액 정상 데이터")
+st.data_editor(df_ok[preview_cols], num_rows="dynamic", key="ok_table")
+st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
+st.data_editor(df_err[preview_cols], num_rows="dynamic", key="err_table")
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
 df_ok = merged[mask]
 df_err = merged[~mask]
