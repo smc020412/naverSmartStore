@@ -7,7 +7,7 @@ import msoffcrypto  # 암호화된 엑셀 처리용
 st.set_page_config(page_title="네이버스토어 엑셀 결산", layout="wide")
 st.title("네이버스토어 엑셀 결산 앱")
 
-# 1) 아산율림_제품목록 파일 업로드 (선택) 및 배송비 매핑
+# 1) 아산율림_제품목록 파일 업로드 (선택) 및 배송비 매핑 (상품번호 기준)
 shipping_map = {}
 item_file = st.sidebar.file_uploader(
     "아산율림_제품목록 파일 업로드 (선택)",
@@ -18,7 +18,8 @@ item_file = st.sidebar.file_uploader(
 if item_file:
     try:
         item_df = pd.read_excel(item_file, engine="openpyxl")
-        shipping_map = dict(zip(item_df['상품명'], item_df['배송비']))
+        # 상품번호로 매핑
+        shipping_map = dict(zip(item_df['상품번호'], item_df['배송비']))
     except Exception as e:
         st.sidebar.error(f"상품목록 파일 처리 중 오류: {e}")
 else:
@@ -45,6 +46,7 @@ if not uploaded_files:
 column_mapping = {
     '주문번호': '주문번호',
     '정산완료일': '일자',
+    '상품번호': '상품번호',  # raw 그대로 유지
     '상품명': '판매품목',
     '옵션정보': '옵션명',
     '수량': '판매수량',
@@ -59,13 +61,13 @@ fee_columns = [
     '무이자할부 수수료(D)'
 ]
 needed_cols = [
-    '주문번호','일자','판매품목','옵션명',
+    '주문번호','일자','상품번호','판매품목','옵션명',
     '판매수량','판매금액','판매수수료',
     '배송상태','정산현황','기타'
 ]
 
 # 4) 원본 데이터 로드, 복호화 및 디버그 정보 출력
-# 디버그: 로드된 행/열 정보만 표시, 컬럼 리스트 제거
+# (데이터 로드 성공시 행/열 출력)
 
 dfs = []
 for f in uploaded_files:
@@ -120,6 +122,7 @@ if not dfs:
     st.error("유효한 데이터가 없습니다. 업로드한 파일과 비밀번호를 확인해주세요.")
     st.stop()
 
+# 5) 데이터 결합 및 타입 변환
 combined = pd.concat(dfs, ignore_index=True)
 combined['일자'] = pd.to_datetime(combined['일자'], errors='coerce')
 for c in ['판매수량','판매금액','판매수수료']:
@@ -135,28 +138,24 @@ if not valid_dates.empty:
         start, end = dr
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) |
                               combined['일자'].isna()]
-# 7) 제품 선택 UI (실제 필터는 병합 후 적용)
+
+# 7) 제품 선택 UI (병합 후 적용)
 if item_file:
-    products = item_df['상품명'].dropna().unique().tolist()
-    st.sidebar.header("제품 선택")
-    select_all_products = st.sidebar.checkbox("전체 제품 선택", value=True)
-    if select_all_products:
-        selected_products = products
-    else:
-        selected_products = [prod for prod in products if st.sidebar.checkbox(prod, value=False)]
+    products = item_df['상품번호'].dropna().unique().tolist()
+    st.sidebar.header("상품번호 선택")
+    select_all = st.sidebar.checkbox("전체 선택", value=True)
+    selected = products if select_all else [p for p in products if st.sidebar.checkbox(str(p), value=False)]
 
-# 8) 배송비 계산 및 표시 (정수, 음수)
-
-# 8) 배송비 계산 및 표시 (정수, 음수) 배송비 계산 및 표시 (정수, 음수) 및 표시 (정수, 음수)
-combined['택배비'] = combined['판매품목'].map(shipping_map).fillna(0) * combined['판매수량']
+# 8) 배송비 계산 및 표시 (상품번호 기준)
+combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].astype(int)
 
 # 9) 주문 단위 집계 및 순수익 계산
-# 9) 주문 단위로 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
     '일자': 'first',
+    '상품번호': 'first',
     '판매품목': 'first',
-    '옵션명': lambda x: x[x.notna() & (x!='')].iloc[0] if not x[x.notna() & (x!='')].empty else '',  # 첫 번째 유효 옵션명  # 첫 옵션명 유지
+    '옵션명': lambda x: x[x.notna() & (x!='')].iloc[0] if not x[x.notna() & (x!='')].empty else '',
     '판매수량': 'sum',
     '판매금액': 'sum',
     '판매수수료': 'sum',
@@ -165,12 +164,11 @@ merged = combined.groupby('주문번호', as_index=False).agg({
     '정산현황': lambda x: next((v for v in x if pd.notna(v) and v!=''), ''),
     '기타': lambda x: ', '.join(x.dropna().unique())
 })
-# 순수익 계산
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
 
-# 9.1) 상품 선택 필터 (병합 후 적용)
+# 10) 상품번호 필터 적용
 if item_file:
-    merged = merged[merged['판매품목'].isin(selected_products)]
+    merged = merged[merged['상품번호'].isin(selected)]
 
 # 10) 미리보기
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
