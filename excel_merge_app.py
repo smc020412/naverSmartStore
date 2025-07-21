@@ -76,7 +76,7 @@ for f in uploaded_files:
     # 필요한 컬럼 추가 및 순서 맞추기
     for col in needed_cols:
         if col not in df.columns:
-            df[col] = 0 if col in ['판매수량','판매금액','판매수수료','원본택배비'] else ''
+            df[col] = 0 if col in ['판매수량','판매금액','판매수수료','택배비'] else ''
     df = df[needed_cols]
     dfs.append(df)
 
@@ -89,7 +89,7 @@ merged = combined.groupby('주문번호', as_index=False).agg({
     '판매수량':'sum',
     '판매금액':'sum',
     '판매수수료':'sum',
-    '원본택배비':'first',
+    '택배비':'sum',
     '배송상태': lambda x: ', '.join(x.dropna().unique()),
     '정산현황': lambda x: ', '.join(x.dropna().unique()),
     '기타': lambda x: ', '.join(x.dropna().unique())
@@ -99,7 +99,7 @@ merged = combined.groupby('주문번호', as_index=False).agg({
 date_cols = ['일자']
 for c in date_cols:
     merged[c] = pd.to_datetime(merged[c], errors='coerce')
-num_cols = ['판매수량','판매금액','판매수수료','원본택배비']
+num_cols = ['판매수량','판매금액','판매수수료','택배비']
 for c in num_cols:
     merged[c] = pd.to_numeric(merged[c], errors='coerce').fillna(0).astype(int)
 
@@ -128,28 +128,43 @@ st.data_editor(df_ok[cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
 st.data_editor(df_err[cols], num_rows="dynamic", key="err_table")
 
-# 10) 엑셀 다운로드 및 요약 생성
+# 10) 엑셀 다운로드 (2개의 시트 + 요약행 추가)
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-    def write_summary(df, name):
-        df.to_excel(writer, sheet_name=name, index=False)
-        ws = writer.sheets[name]
-        tot_qty = df['판매수량'].sum()
-        tot_amt = df['판매금액'].sum()
-        tot_fee = df['판매수수료'].sum()
-        tot_ship = -df['택배비'].sum()
-        tot_dep = tot_fee + tot_ship
-        row0 = ws.max_row + 2
-        hdr = list(df.columns)
-        def c(r,c,v): ws.cell(row=r, column=c, value=v)
-        c(row0,   hdr.index('판매수량')+1, '총판매량');    c(row0,   hdr.index('판매수량')+2, tot_qty)
-        c(row0+1, hdr.index('판매금액')+1, '총금액');      c(row0+1, hdr.index('판매금액')+2, tot_amt)
-        c(row0+2, hdr.index('판매수수료')+1, '총수수료');   c(row0+2, hdr.index('판매수수료')+2, tot_fee)
-        c(row0+3, hdr.index('택배비')+1,     '총택배비');   c(row0+3, hdr.index('택배비')+2,     tot_ship)
-        c(row0+4, hdr.index('택배비')+1,     '총지출');     c(row0+4, hdr.index('택배비')+2,     tot_dep)
-        c(row0+5, hdr.index('판매금액')+1,  '총이익');     c(row0+5, hdr.index('판매금액')+2,  tot_amt + tot_dep)
-    write_summary(df_ok, '정상')
-    write_summary(df_err, '문제')
+    def write_with_summary(df, sheet_name):
+        df.to_excel(writer, sheet_name=sheet_name, index=False)
+        ws = writer.sheets[sheet_name]
+        total_qty = df['판매수량'].sum()
+        total_amount = df['판매금액'].sum()
+        total_fee = df['판매수수료'].sum()
+        total_delivery = -df['택배비'].sum()
+        total_deposit = total_fee + total_delivery
+        summary_row = ws.max_row + 2  # 한 칸 내려서 시작
+        # 총판매량
+        col_qty = list(df.columns).index('판매금액') + 1
+        ws.cell(row=summary_row, column=col_qty, value='총판매량')
+        ws.cell(row=summary_row, column=col_qty+1, value=total_qty)
+        # 총금액
+        col_amt = list(df.columns).index('판매금액') + 1
+        ws.cell(row=summary_row+1, column=col_amt, value='총금액')
+        ws.cell(row=summary_row+1, column=col_amt+1, value=total_amount)
+        # 총수수료
+        ws.cell(row=summary_row+2, column=col_amt+2, value='총수수료')
+        ws.cell(row=summary_row+2, column=col_amt+3, value=total_fee)
+        # 총택배비
+        ws.cell(row=summary_row+3, column=col_amt+2, value='총택배비')
+        ws.cell(row=summary_row+3, column=col_amt+3, value= total_delivery)
+
+        # 총지출
+        ws.cell(row=summary_row+4, column=col_amt+2, value='총지출')
+        ws.cell(row=summary_row+4, column=col_amt+3, value= total_deposit)
+
+        # 총이익
+        ws.cell(row=summary_row+5, column=col_amt, value='총이익')
+        ws.cell(row=summary_row+5, column=col_amt+1, value=total_amount + total_fee + total_delivery)
+
+    write_with_summary(df_ok, '정상')
+    write_with_summary(df_err, '문제')
 buf.seek(0)
 
 st.download_button(
