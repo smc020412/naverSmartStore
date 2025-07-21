@@ -1,5 +1,6 @@
 # naverSmartStore
 네이버 스마트 스토어 엑셀병합
+https://naversmartstoregit-pyjhomp8hp36bmso9jjdzw.streamlit.app/
 
 뭐 그리 기능이 여러가지인건 아니고 그냥 
 네이버스마트스토어 센터에서 가져올 수 있는 엑셀 파일중에 
