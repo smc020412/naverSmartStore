@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -132,4 +131,3 @@ st.download_button(
     file_name="네이버스토어_결산_결과.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-```
