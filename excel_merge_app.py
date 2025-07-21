@@ -23,7 +23,7 @@ if item_file:
     except Exception as e:
         st.sidebar.error(f"상품목록 파일 처리 중 오류: {e}")
 else:
-    st.sidebar.info("상품목록 파일이 없으면 배송비는 0으로 처리됩니다.")
+    st.sidebar.info("상품목록 파일이 없으면 모든 제품을 표시하고 배송비는 0으로 처리됩니다.")
 
 # 2) 네이버스토어 엑셀 파일 업로드 (여러 개 가능)
 uploaded_files = st.file_uploader(
@@ -64,7 +64,6 @@ dfs = []
 for f in uploaded_files:
     df = pd.read_excel(f, engine="openpyxl")
     df.rename(columns=column_mapping, inplace=True)
-    # 수수료 합산
     existing = [c for c in fee_columns if c in df.columns]
     if existing:
         df[existing] = df[existing].apply(pd.to_numeric, errors='coerce')
@@ -72,7 +71,6 @@ for f in uploaded_files:
         df.drop(columns=existing, inplace=True)
     else:
         df['판매수수료'] = 0
-    # 필요한 컬럼 채우기
     for col in needed_cols:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
@@ -96,67 +94,77 @@ if not valid_dates.empty:
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) |
                               combined['일자'].isna()]
 
-# 7) 배송비 계산: 제품명 매칭 후 수량 곱하기 (없으면 0), 정수형, 음수표시
+# 7) 제품 필터 (상품목록 기반 체크박스 with 전체선택)
+if item_file:
+    products = item_df['상품명'].dropna().unique().tolist()
+    st.sidebar.header("제품 선택")
+    select_all = st.sidebar.checkbox("전체 선택", value=True)
+    if select_all:
+        selected_products = products
+    else:
+        selected_products = [prod for prod in products if st.sidebar.checkbox(prod, value=False)]
+    combined = combined[combined['판매품목'].isin(selected_products)]
+
+# 8) 배송비 계산 및 표시 (정수, 음수)
 combined['택배비'] = combined['판매품목'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].astype(int)
 
-# 8) 주문 단위로 집계 및 순수익 계산 (merged)
+# 9) 주문 단위 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
-    '일자': 'first',
-    '판매품목': 'first',
-    '옵션명': 'first',
+    '일자': lambda x: x.dropna().iloc[0] if not x.dropna().empty else pd.NaT,
+    '판매품목': lambda x: x.dropna().iloc[0] if not x.dropna().empty else '',
+    '옵션명': lambda x: x.dropna().iloc[0] if not x.dropna().empty else '',
     '판매수량': 'sum',
     '판매금액': 'sum',
     '판매수수료': 'sum',
     '택배비': 'sum',
-    '배송상태': lambda x: ', '.join(x.dropna().unique()),
-    '정산현황': lambda x: ', '.join(x.dropna().unique()),
-    '기타': lambda x: ', '.join(x.dropna().unique())
+    '배송상태': lambda x: ''.join(x.dropna().unique()),
+    '정산현황': lambda x: ''.join(x.dropna().unique()),
+    '기타': lambda x: ''.join(x.dropna().unique())
 })
-# 순수익 계산: 판매금액 - 판매수수료 - (음수로 표시된 택배비)
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
 
-# 9) 정상/문제 분류 및 미리보기
+# 10) 미리보기
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
 df_ok = merged[mask]
 df_err = merged[~mask]
-cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
+preview_cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("판매수량 및 판매금액 정상 데이터")
-st.data_editor(df_ok[cols], num_rows="dynamic", key="ok_table")
+st.data_editor(df_ok[preview_cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
-st.data_editor(df_err[cols], num_rows="dynamic", key="err_table")
+st.data_editor(df_err[preview_cols], num_rows="dynamic", key="err_table")
 
-# 10) 엑셀 다운로드 (2개 시트 + 요약행 추가)
+# 11) 엑셀 다운로드 및 요약행 추가
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def write_with_summary(df, sheet_name):
-        df.to_excel(writer, sheet_name=sheet_name, index=False)
+        df_to_write = df[preview_cols]
+        df_to_write.to_excel(writer, sheet_name=sheet_name, index=False)
         ws = writer.sheets[sheet_name]
-        total_qty = df['판매수량'].sum()
-        total_amount = df['판매금액'].sum()
-        total_fee = df['판매수수료'].sum()
-        total_delivery = df['택배비'].sum()  # 음수값 합산
+        total_qty = df_to_write['판매수량'].sum()
+        total_amount = df_to_write['판매금액'].sum()
+        total_fee = df_to_write['판매수수료'].sum()
+        total_delivery = df_to_write['택배비'].sum()
         total_deposit = total_fee + total_delivery
         summary_row = ws.max_row + 2
-        idx_amt = list(df.columns).index('판매금액') + 1
-        # 총판매량
+        idx_amt = preview_cols.index('판매금액') + 1
         ws.cell(row=summary_row, column=idx_amt, value='총판매량')
         ws.cell(row=summary_row, column=idx_amt+1, value=total_qty)
-        # 총금액
         ws.cell(row=summary_row+1, column=idx_amt, value='총금액')
         ws.cell(row=summary_row+1, column=idx_amt+1, value=total_amount)
-        # 총수수료
         ws.cell(row=summary_row+2, column=idx_amt+2, value='총수수료')
         ws.cell(row=summary_row+2, column=idx_amt+3, value=total_fee)
-        # 총택배비
         ws.cell(row=summary_row+3, column=idx_amt+2, value='총택배비')
         ws.cell(row=summary_row+3, column=idx_amt+3, value=total_delivery)
-        # 총지출
         ws.cell(row=summary_row+4, column=idx_amt+2, value='총지출')
         ws.cell(row=summary_row+4, column=idx_amt+3, value=total_deposit)
-        # 총이익
         ws.cell(row=summary_row+5, column=idx_amt, value='총이익')
         ws.cell(row=summary_row+5, column=idx_amt+1, value=total_amount + total_deposit)
+        statuses = ['정산완료','배송중','배송완료','구매확정']
+        for i, status in enumerate(statuses):
+            qty = df_to_write.loc[df_to_write['배송상태'] == status, '판매수량'].sum()
+            ws.cell(row=summary_row+7+i, column=idx_amt, value=f'{status} 수량')
+            ws.cell(row=summary_row+7+i, column=idx_amt+1, value=qty)
     write_with_summary(df_ok, '정상')
     write_with_summary(df_err, '문제')
 buf.seek(0)
