@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -73,6 +74,7 @@ column_mapping = {
     '옵션정보': '옵션명',
     '수량': '판매수량',
     '정산기준금액(A)': '판매금액',
+    '네이버페이 주문관리 수수료(B)': '판매수수료',  # 추가 매핑
     '주문상태': '배송상태',
     '정산상태': '정산현황',
     '클레임상태': '기타'
@@ -88,6 +90,8 @@ needed_cols = [
 # 데이터프레임 리스트를 하나로 합치고 컬럼명 일관성 확보
 combined = pd.concat(file_dfs, ignore_index=True)
 combined.rename(columns=column_mapping, inplace=True)
+
+# 필요한 컬럼만 선택
 combined = combined[needed_cols]
 
 # 5) 택배비 계산 및 표시 (상품번호 기반 매핑)
@@ -128,3 +132,4 @@ st.download_button(
     file_name="네이버스토어_결산_결과.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+```
