@@ -15,7 +15,7 @@ https://naversmartstoregit-pyjhomp8hp36bmso9jjdzw.streamlit.app/
 
 
 
-* 판매관리 - 주문통합검색에서 받을 수 있는 엑셀파일
+* 판매관리 - 주문통합검색에서 받을 수 있는 엑셀파일 (암호화된거 그냥 올려도됨.)
 
   
 * 정산관리 - 항목별 정산 내역에서 받을 수 있는 엑셀파일
