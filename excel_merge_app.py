@@ -112,9 +112,8 @@ if not valid_dates.empty:
 combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].astype(int)
 
-# 7) 주문 단위 집계 및 순수익 계산 (상품번호 포함)
+# 7) 주문 단위 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
-    '상품번호': 'first',
     '일자': 'first',
     '판매품목': 'first',
     '옵션명': lambda x: x[x.notna() & (x!='')].iloc[0] if not x[x.notna() & (x!='')].empty else '',
@@ -132,7 +131,7 @@ merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merge
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
 df_ok = merged[mask]
 df_err = merged[~mask]
-preview_cols = ['주문번호','상품번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
+preview_cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("판매수량 및 판매금액 정상 데이터")
 st.data_editor(df_ok[preview_cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
@@ -167,4 +166,3 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     write_with_summary(df_err, '문제')
 buf.seek(0)
 st.download_button("결산 엑셀 다운로드", buf, file_name="결과.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
