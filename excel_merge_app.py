@@ -118,8 +118,8 @@ merged = combined.groupby('주문번호', as_index=False).agg({
     '판매금액': 'sum',
     '판매수수료': 'sum',
     '택배비': 'sum',
-    '배송상태': lambda x: ', '.join(x.dropna().unique()),
-    '정산현황': lambda x: ', '.join(x.dropna().unique()),
+    '배송상태': 'first',
+    '정산현황': 'first',
     '기타': lambda x: ', '.join(x.dropna().unique())
 })
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
@@ -148,28 +148,21 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         total_deposit = total_fee + total_delivery
         summary_row = ws.max_row + 2
         idx_amt = preview_cols.index('판매금액') + 1
-        # 총판매량
         ws.cell(row=summary_row, column=idx_amt, value='총판매량')
         ws.cell(row=summary_row, column=idx_amt+1, value=total_qty)
-        # 총금액
         ws.cell(row=summary_row+1, column=idx_amt, value='총금액')
         ws.cell(row=summary_row+1, column=idx_amt+1, value=total_amount)
-        # 총수수료
         ws.cell(row=summary_row+2, column=idx_amt+2, value='총수수료')
         ws.cell(row=summary_row+2, column=idx_amt+3, value=total_fee)
-        # 총택배비
         ws.cell(row=summary_row+3, column=idx_amt+2, value='총택배비')
         ws.cell(row=summary_row+3, column=idx_amt+3, value=total_delivery)
-        # 총지출
         ws.cell(row=summary_row+4, column=idx_amt+2, value='총지출')
         ws.cell(row=summary_row+4, column=idx_amt+3, value=total_deposit)
-        # 총이익
         ws.cell(row=summary_row+5, column=idx_amt, value='총이익')
         ws.cell(row=summary_row+5, column=idx_amt+1, value=total_amount + total_deposit)
-        # 상태별 판매수량 합계
         statuses = ['정산완료','배송중','배송완료','구매확정']
         for i, status in enumerate(statuses):
-            qty = df_to_write.loc[df_to_write['배송상태']==status, '판매수량'].sum()
+            qty = df_to_write.loc[df_to_write['배송상태'] == status, '판매수량'].sum()
             ws.cell(row=summary_row+7+i, column=idx_amt, value=f'{status} 수량')
             ws.cell(row=summary_row+7+i, column=idx_amt+1, value=qty)
     write_with_summary(df_ok, '정상')
