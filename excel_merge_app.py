@@ -25,7 +25,7 @@ if item_file:
 else:
     st.sidebar.info("상품목록 파일이 없으면 배송비는 0으로 처리됩니다.")
 
-# 2) 네이버스토어 엑셀 파일 업로드 (여러 개)
+# 2) 네이버스토어 엑셀 파일 업로드 (여러 개 가능)
 uploaded_files = st.file_uploader(
     "네이버스토어 엑셀 파일 업로드 (여러 개 가능)",
     type=["xlsx"],
@@ -44,7 +44,6 @@ column_mapping = {
     '옵션정보': '옵션명',
     '수량': '판매수량',
     '정산기준금액(A)': '판매금액',
-    '배송속성': '원본택배비',
     '주문상태': '배송상태',
     '정산상태': '정산현황',
     '클레임상태': '기타'
@@ -56,11 +55,11 @@ fee_columns = [
 ]
 needed_cols = [
     '주문번호','일자','판매품목','옵션명',
-    '판매수량','판매금액','판매수수료','원본택배비',
+    '판매수량','판매금액','판매수수료',
     '배송상태','정산현황','기타'
 ]
 
-# 4) 여러 파일 읽어와서 전처리
+# 4) 파일 전처리
 dfs = []
 for f in uploaded_files:
     df = pd.read_excel(f, engine="openpyxl")
@@ -70,42 +69,37 @@ for f in uploaded_files:
     if existing:
         df[existing] = df[existing].apply(pd.to_numeric, errors='coerce')
         df['판매수수료'] = df[existing].sum(axis=1)
-        df.drop(columns=existing, inplace=True)
     else:
         df['판매수수료'] = 0
-    # 필요한 컬럼 추가 및 순서 맞추기
+    # 필요한 컬럼만 유지
     for col in needed_cols:
         if col not in df.columns:
-            df[col] = 0 if col in ['판매수량','판매금액','판매수수료','택배비'] else ''
+            df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     df = df[needed_cols]
     dfs.append(df)
 
-# 5) 데이터 병합 및 집계
+# 5) 병합 및 집계
 combined = pd.concat(dfs, ignore_index=True)
 merged = combined.groupby('주문번호', as_index=False).agg({
-    '일자':'first',
-    '판매품목':'first',
-    '옵션명':'first',
-    '판매수량':'sum',
-    '판매금액':'sum',
-    '판매수수료':'sum',
-    '택배비':'sum',
+    '일자': 'first',
+    '판매품목': 'first',
+    '옵션명': 'first',
+    '판매수량': 'sum',
+    '판매금액': 'sum',
+    '판매수수료': 'sum',
     '배송상태': lambda x: ', '.join(x.dropna().unique()),
     '정산현황': lambda x: ', '.join(x.dropna().unique()),
     '기타': lambda x: ', '.join(x.dropna().unique())
 })
 
 # 6) 타입 정리
-date_cols = ['일자']
-for c in date_cols:
-    merged[c] = pd.to_datetime(merged[c], errors='coerce')
-num_cols = ['판매수량','판매금액','판매수수료','택배비']
-for c in num_cols:
+merged['일자'] = pd.to_datetime(merged['일자'], errors='coerce')
+for c in ['판매수량','판매금액','판매수수료']:
     merged[c] = pd.to_numeric(merged[c], errors='coerce').fillna(0).astype(int)
 
 # 7) 날짜 필터
 st.sidebar.header("날짜 범위 필터")
-valid = merged['일자'].dropna().dt.date
+valid = merged['일자'].dt.date.dropna()
 if not valid.empty:
     mn, mx = valid.min(), valid.max()
     dr = st.sidebar.date_input("날짜 범위 선택", value=(mn, mx), min_value=mn, max_value=mx)
@@ -117,12 +111,11 @@ if not valid.empty:
 # 8) 배송비 계산: 제품명 매칭 후 수량 곱하기 (없으면 0)
 merged['택배비'] = merged['판매품목'].map(shipping_map).fillna(0) * merged['판매수량']
 
-# 9) 정상/문제 데이터 분류 및 미리보기
+# 9) 분류 및 미리보기
 mask = (merged['판매수량']>0)&(merged['판매금액']>0)&merged['일자'].notna()
 df_ok = merged[mask]
 df_err = merged[~mask]
-cols = ['주문번호','일자','판매품목','옵션명','판매수량',
-        '판매금액','판매수수료','택배비','배송상태','정산현황','기타']
+cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','배송상태','정산현황','기타']
 st.subheader("판매수량 및 판매금액 정상 데이터")
 st.data_editor(df_ok[cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
