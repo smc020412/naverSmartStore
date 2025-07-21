@@ -64,7 +64,6 @@ dfs = []
 for f in uploaded_files:
     df = pd.read_excel(f, engine="openpyxl")
     df.rename(columns=column_mapping, inplace=True)
-    # 수수료 합산
     existing = [c for c in fee_columns if c in df.columns]
     if existing:
         df[existing] = df[existing].apply(pd.to_numeric, errors='coerce')
@@ -72,7 +71,6 @@ for f in uploaded_files:
         df.drop(columns=existing, inplace=True)
     else:
         df['판매수수료'] = 0
-    # 필요한 컬럼 채우기
     for col in needed_cols:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
@@ -107,11 +105,11 @@ if item_file:
         selected_products = [prod for prod in products if st.sidebar.checkbox(prod, value=False)]
     combined = combined[combined['판매품목'].isin(selected_products)]
 
-# 8) 배송비 계산: 제품명 매칭 후 수량 곱하기 (없으면 0), 정수형, 음수표시
+# 8) 배송비 계산 및 표시 (정수, 음수)
 combined['택배비'] = combined['판매품목'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].astype(int)
 
-# 9) 주문 단위로 집계 및 순수익 계산 (merged)
+# 9) 주문 단위 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
     '일자': 'first',
     '판매품목': 'first',
@@ -126,7 +124,7 @@ merged = combined.groupby('주문번호', as_index=False).agg({
 })
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
 
-# 10) 정상/문제 분류 및 미리보기
+# 10) 미리보기
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
 df_ok = merged[mask]
 df_err = merged[~mask]
@@ -136,11 +134,10 @@ st.data_editor(df_ok[preview_cols], num_rows="dynamic", key="ok_table")
 st.subheader("판매수량 또는 판매금액이 0이거나 일자가 없는 데이터")
 st.data_editor(df_err[preview_cols], num_rows="dynamic", key="err_table")
 
-# 11) 엑셀 다운로드 (2개 시트 + 요약행 추가)
+# 11) 엑셀 다운로드 및 요약행 추가
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def write_with_summary(df, sheet_name):
-        # 엑셀 칼럼 순서를 미리보기와 동일하게 정렬
         df_to_write = df[preview_cols]
         df_to_write.to_excel(writer, sheet_name=sheet_name, index=False)
         ws = writer.sheets[sheet_name]
@@ -169,6 +166,12 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         # 총이익
         ws.cell(row=summary_row+5, column=idx_amt, value='총이익')
         ws.cell(row=summary_row+5, column=idx_amt+1, value=total_amount + total_deposit)
+        # 상태별 판매수량 합계
+        statuses = ['정산완료','배송중','배송완료','구매확정']
+        for i, status in enumerate(statuses):
+            qty = df_to_write.loc[df_to_write['배송상태']==status, '판매수량'].sum()
+            ws.cell(row=summary_row+7+i, column=idx_amt, value=f'{status} 수량')
+            ws.cell(row=summary_row+7+i, column=idx_amt+1, value=qty)
     write_with_summary(df_ok, '정상')
     write_with_summary(df_err, '문제')
 buf.seek(0)
