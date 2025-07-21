@@ -176,13 +176,21 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         ws.cell(row=summary_row+5, column=idx_amt, value='총이익')
         ws.cell(row=summary_row+5, column=idx_amt+1, value=total_amount + total_deposit)
                 # 요약행: 빠른정산(정산현황) 및 주요 배송 상태별 수량
-        # 빠른정산 수량 (정산현황 기준)
+                # 빠른정산 수량 (정산현황이 '빠른정산')
         qty_fast = df_to_write.loc[df_to_write['정산현황'] == '빠른정산', '판매수량'].sum()
         ws.cell(row=summary_row+7, column=idx_amt, value='빠른정산 수량')
         ws.cell(row=summary_row+7, column=idx_amt+1, value=qty_fast)
+        # 취소 수량 (정산현황이 '취소')
+        qty_cancel = df_to_write.loc[df_to_write['정산현황'] == '취소', '판매수량'].sum()
+        ws.cell(row=summary_row+8, column=idx_amt, value='취소 수량')
+        ws.cell(row=summary_row+8, column=idx_amt+1, value=qty_cancel)
         # 배송 상태별 수량
         delivery_statuses = ['배송중','배송완료','구매확정']
         for j, status in enumerate(delivery_statuses):
+            qty = df_to_write.loc[df_to_write['배송상태'] == status, '판매수량'].sum()
+            ws.cell(row=summary_row+9+j, column=idx_amt, value=f'{status} 수량')
+            ws.cell(row=summary_row+9+j, column=idx_amt+1, value=qty)
+    write_with_summary(df_ok, '정상')
             qty = df_to_write.loc[df_to_write['배송상태'] == status, '판매수량'].sum()
             ws.cell(row=summary_row+8+j, column=idx_amt, value=f'{status} 수량')
             ws.cell(row=summary_row+8+j, column=idx_amt+1, value=qty)
