@@ -125,7 +125,7 @@ merged = combined.groupby('주문번호', as_index=False).agg({
     '정산현황': lambda x: next((v for v in x if pd.notna(v) and v!=''), ''),
     '기타': lambda x: ', '.join(x.dropna().unique())
 })
-merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
+merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merged['택배비']
 
 # 8) 미리보기 (정상/문제 데이터 분리)
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
