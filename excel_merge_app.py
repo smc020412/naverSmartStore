@@ -18,8 +18,14 @@ item_file = st.sidebar.file_uploader(
 if item_file:
     try:
         item_df = pd.read_excel(item_file, engine="openpyxl")
-        # 상품번호로 매핑
-        shipping_map = dict(zip(item_df['상품번호'], item_df['배송비']))
+        # 컬럼명 공백 제거
+        item_df.columns = item_df.columns.str.strip()
+        # 필수 컬럼 확인
+        if '상품번호' not in item_df.columns or '배송비' not in item_df.columns:
+            st.sidebar.error("상품목록 파일에 '상품번호' 또는 '배송비' 컬럼이 없습니다.")
+        else:
+            # 상품번호로 매핑
+            shipping_map = dict(zip(item_df['상품번호'], item_df['배송비']))
     except Exception as e:
         st.sidebar.error(f"상품목록 파일 처리 중 오류: {e}")
 else:
@@ -66,9 +72,8 @@ needed_cols = [
     '배송상태','정산현황','기타'
 ]
 
-# 4) 원본 데이터 로드, 복호화 및 디버그 정보 출력
-# (데이터 로드 성공시 행/열 출력)
-
+# 4) 원본 데이터 로드 및 복호화
+# (디버그: 행/열 정보 표시)
 dfs = []
 for f in uploaded_files:
     raw = f.read()
@@ -99,7 +104,8 @@ for f in uploaded_files:
         st.sidebar.warning(f"{f.name} 데이터가 없습니다.")
         continue
 
-    df.rename(columns=column_mapping, inplace=True)
+    # 컬럼명 매핑 및 전처리
+    df.rename(columns={col: new for col, new in column_mapping.items()}, inplace=True)
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']
         df.drop(columns=['옵션정보'], inplace=True)
@@ -118,17 +124,18 @@ for f in uploaded_files:
     df = df[needed_cols]
     dfs.append(df)
 
+# 5) 데이터 결합 전 dfs 유효성 확인
 if not dfs:
-    st.error("유효한 데이터가 없습니다. 업로드한 파일과 비밀번호를 확인해주세요.")
+    st.error("유효한 데이터가 없습니다. 파일 및 비밀번호를 확인해주세요.")
     st.stop()
 
-# 5) 데이터 결합 및 타입 변환
+# 6) 데이터 결합 및 타입 변환
 combined = pd.concat(dfs, ignore_index=True)
 combined['일자'] = pd.to_datetime(combined['일자'], errors='coerce')
 for c in ['판매수량','판매금액','판매수수료']:
     combined[c] = pd.to_numeric(combined[c], errors='coerce').fillna(0).astype(int)
 
-# 6) 날짜 필터
+# 7) 날짜 필터
 st.sidebar.header("날짜 범위 필터")
 valid_dates = combined['일자'].dt.date.dropna()
 if not valid_dates.empty:
@@ -139,18 +146,20 @@ if not valid_dates.empty:
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) |
                               combined['일자'].isna()]
 
-# 7) 제품 선택 UI (병합 후 적용)
-if item_file:
+# 8) 상품번호 선택 UI
+if item_file and 'item_df' in locals():
+    item_df.columns = item_df.columns.str.strip()
     products = item_df['상품번호'].dropna().unique().tolist()
     st.sidebar.header("상품번호 선택")
     select_all = st.sidebar.checkbox("전체 선택", value=True)
     selected = products if select_all else [p for p in products if st.sidebar.checkbox(str(p), value=False)]
+    combined = combined[combined['상품번호'].isin(selected)]
 
-# 8) 배송비 계산 및 표시 (상품번호 기준)
+# 9) 배송비 계산
 combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].astype(int)
 
-# 9) 주문 단위 집계 및 순수익 계산
+# 10) 주문 단위 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
     '일자': 'first',
     '상품번호': 'first',
@@ -165,10 +174,6 @@ merged = combined.groupby('주문번호', as_index=False).agg({
     '기타': lambda x: ', '.join(x.dropna().unique())
 })
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
-
-# 10) 상품번호 필터 적용
-if item_file:
-    merged = merged[merged['상품번호'].isin(selected)]
 
 # 10) 미리보기
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
