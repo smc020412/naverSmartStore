@@ -111,13 +111,13 @@ if not valid_dates.empty:
 # 6) 제품 선택 UI (상품번호에 매칭되는 제품명 표시)
 st.sidebar.header("제품 선택")
 prod_map = combined[['상품번호','판매품목']].drop_duplicates().reset_index(drop=True)
-select_all = st.sidebar.checkbox("전체 제품 선택", value=True)
+select_all = st.sidebar.checkbox("전체 제품 선택", value=True, key="select_all")
 if select_all:
     selected_nums = prod_map['상품번호'].tolist()
 else:
     selected_nums = []
     for _, row in prod_map.iterrows():
-        if st.sidebar.checkbox(row['판매품목'], value=False):
+        if st.sidebar.checkbox(label=row['판매품목'], value=False, key=f"prod_{row['상품번호']}"):
             selected_nums.append(row['상품번호'])
 combined = combined[combined['상품번호'].isin(selected_nums)]
 
