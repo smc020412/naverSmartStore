@@ -16,11 +16,11 @@ shipping_fee_file = st.sidebar.file_uploader(
 if shipping_fee_file:
     try:
         df_fee = pd.read_excel(shipping_fee_file, engine="openpyxl")
-        # 상품번호, 옵션명을 문자열로 통일하여 매핑
-        df_fee["상품번호"] = df_fee["상품번호"].astype(str)
-        df_fee["옵션명"]   = df_fee["옵션명"].astype(str)
+        # 상품번호, 옵션명을 문자열로 통일하고 공백 제거
+        df_fee['상품번호'] = df_fee['상품번호'].astype(str).str.strip()
+        df_fee['옵션명']   = df_fee['옵션명'].fillna('').astype(str).str.strip()
         # (상품번호, 옵션명) -> 배송비 딕셔너리 생성
-        shipping_map = df_fee.set_index(["상품번호","옵션명"])["배송비"].to_dict()
+        shipping_map = df_fee.set_index(['상품번호','옵션명'])['배송비'].to_dict()
         st.sidebar.success(f"배송비 매핑 {len(shipping_map)}건 로드됨")
     except Exception as e:
         st.sidebar.error(f"배송비 파일 오류: {e}")
@@ -125,16 +125,16 @@ else:
     combined = combined[combined['상품번호'].isin(sel_nums)]
 
 # 7) 택배비 계산 및 표시 (상품번호+옵션명 기반 매핑)
-combined["상품번호"] = combined["상품번호"].astype(str)
-combined["옵션명"]   = combined["옵션명"].astype(str)
+combined['상품번호'] = combined['상품번호'].fillna('').astype(str).str.strip()
+combined['옵션명']   = combined['옵션명'].fillna('').astype(str).str.strip()
 # 배송비 단가 가져오기
-combined["배송비_단가"] = combined.apply(
-    lambda x: shipping_map.get((x["상품번호"], x["옵션명"]), 0),
+combined['배송비_단가'] = combined.apply(
+    lambda x: shipping_map.get((x['상품번호'], x['옵션명']), 0),
     axis=1
 )
 # 수량 * 단가 → 택배비, 음수 처리
-combined["택배비"] = combined["배송비_단가"] * combined["판매수량"].fillna(0)
-combined["택배비"] = -combined["택배비"].astype(int)
+combined['택배비'] = combined['배송비_단가'] * combined['판매수량']
+combined['택배비'] = -combined['택배비'].fillna(0).astype(int)
 
 # 8) 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
