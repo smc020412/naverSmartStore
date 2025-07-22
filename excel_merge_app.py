@@ -19,11 +19,9 @@ shipping_fee_file = st.sidebar.file_uploader(
 if shipping_fee_file:
     try:
         df_fee = pd.read_excel(shipping_fee_file, engine="openpyxl")
-        # 문자열 통일 및 공백 제거
         df_fee['상품번호'] = df_fee['상품번호'].astype(str).str.strip()
         df_fee['상품명']   = df_fee['상품명'].astype(str).str.strip()
         df_fee['옵션명']   = df_fee['옵션명'].fillna('').astype(str).str.strip()
-        # 매핑 생성
         shipping_map = df_fee.set_index(['상품번호','옵션명'])['배송비'].to_dict()
         price_map    = df_fee.set_index(['상품명','옵션명'])['판매가격'].to_dict()
         st.sidebar.success(
@@ -153,13 +151,11 @@ merged = combined.groupby('주문번호', as_index=False).agg({
 })
 merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merged['택배비']
 
-# --- 12) 미리보기 (판매수수료 == 0 기준 분류) ---
-mask = merged['판매수수료'] == 0
-# 정상 데이터
-df_ok = merged[~mask]
-# 진행중인 데이터
-df_err = merged[mask]
-# 진행중 데이터 판매금액 표시 수정: 판매수량 > 1이면 판매금액 * 판매수량
+# --- 12) 미리보기 (원본 선별 기준) ---
+mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
+df_ok = merged[mask]
+df_err = merged[~mask]
+# 진행중인 데이터 판매금액 표시 수정: 판매수량 > 1이면 판매금액 * 판매수량
 if not df_err.empty:
     df_err['판매금액'] = df_err.apply(
         lambda x: x['판매금액'] * x['판매수량'] if x['판매수량'] > 1 else x['판매금액'],
