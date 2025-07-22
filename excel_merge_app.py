@@ -153,13 +153,17 @@ merged = combined.groupby('주문번호', as_index=False).agg({
 })
 merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merged['택배비']
 
-# --- 12) 미리보기 ---
-mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
-df_ok = merged[mask]
-df_err = merged[~mask]
+# --- 12) 미리보기 (판매수수료 == 0 기준 분류) ---
+mask = merged['판매수수료'] == 0
+# 정상(판매수수료 != 0)
+df_ok = merged[~mask]
+# 진행중인 데이터(판매수수료 == 0)
+df_err = merged[mask]
 cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
-st.subheader("정상 데이터"); st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
-st.subheader("문제 데이터"); st.data_editor(df_err[cols], num_rows="dynamic", key="err")
+st.subheader("정상 데이터")
+st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
+st.subheader("진행중인 데이터")
+st.data_editor(df_err[cols], num_rows="dynamic", key="err")
 
 # --- 13) 엑셀 다운로드 및 요약행 추가 ---
 buf = BytesIO()
@@ -183,7 +187,7 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
             qty = ws_df.loc[ws_df['배송상태']==status,'판매수량'].sum()
             ws.cell(row=r+8+k, column=j, value=f'{status} 수량'); ws.cell(row=r+8+k, column=j+1, value=qty)
     save(df_ok, '정상')
-    save(df_err, '문제')
+    save(df_err, '진행시트')
 buf.seek(0)
 st.download_button(
     "결산 엑셀 다운로드",
