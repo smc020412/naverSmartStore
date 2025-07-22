@@ -34,8 +34,7 @@ else:
 
 # --- 2) 네이버스토어 엑셀 업로드 및 암호 비밀번호 입력 ---
 upload_files = st.sidebar.file_uploader(
-    "네이버스토어 엑셀 업로드 (다중)",
-    type=["xlsx"], accept_multiple_files=True, key="data_files"
+    "네이버스토어 엑셀 업로드 (다중)", type=["xlsx"], accept_multiple_files=True, key="data_files"
 )
 password = st.sidebar.text_input("암호 비밀번호", type="password", key="file_password")
 
@@ -71,6 +70,7 @@ needed = [
     '주문번호','상품번호','일자','판매품목','옵션명',
     '판매수량','판매금액','판매수수료','배송상태','정산현황','기타'
 ]
+
 dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
@@ -80,9 +80,7 @@ for df in file_dfs:
         df['옵션명'] = df['옵션정보']
         df.drop(columns=['옵션정보'], inplace=True)
     if '정산완료일' in df.columns and '주문일시' in df.columns:
-        df['일자'] = pd.to_datetime(
-            df['정산완료일'].fillna(df['주문일시']), errors='coerce'
-        )
+        df['일자'] = pd.to_datetime(df['정산완료일'].fillna(df['주문일시']), errors='coerce')
     elif '정산완료일' in df.columns:
         df['일자'] = pd.to_datetime(df['정산완료일'], errors='coerce')
     elif '주문일시' in df.columns:
@@ -137,30 +135,40 @@ combined['판매금액'] = combined.apply(fill_price, axis=1).fillna(0).astype(i
 combined['총판매금액'] = combined['판매금액'] * combined['판매수량']
 
 # --- 10) 배송비 계산 ---
-combined['배송비_단가'] = combined.apply(
-    lambda x: shipping_map.get((x['상품번호'], x['옵션명']), 0), axis=1
-)
+combined['배송비_단가'] = combined.apply(lambda x: shipping_map.get((x['상품번호'], x['옵션명']), 0), axis=1)
 combined['택배비'] = -(combined['배송비_단가'] * combined['판매수량'])
 
 # --- 11) 집계 및 순수익 계산 ---
 merged = combined.groupby('주문번호', as_index=False).agg({
-    '일자':'first','판매품목':'first','옵션명':lambda x: x[x!=''].iloc[0] if any(x!='') else '',
-    '판매수량':'sum','판매금액':'sum','판매수수료':'sum','택배비':'sum',
+    '일자':'first',
+    '판매품목':'first',
+    '옵션명':lambda x: x[x!=''].iloc[0] if any(x!='') else '',
+    '판매수량':'sum',
+    '판매금액':'sum',
+    '판매수수료':'sum',
+    '택배비':'sum',
     '배송상태':lambda x: next((v for v in x if v), ''),
-    '정산현황':lambda x: next((v for v in x if v), ''),'기타':lambda x: ','.join(x.dropna().unique())
+    '정산현황':lambda x: next((v for v in x if v), ''),
+    '기타':lambda x: ','.join(x.dropna().unique())
 })
 merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merged['택배비']
 
-# --- 12) 미리보기 (원본 선별 기준) ---
+# --- 12) 미리보기 (원본 선별 기준 유지) ---
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
 df_ok = merged[mask]
-df_err = merged[~mask]
-# 진행중인 데이터 판매금액 표시 수정: 판매수량 > 1이면 판매금액 * 판매수량
+df_err = merged[~mask].copy()
+
+# 진행중 데이터: 상품현황 매핑에서 판매가격 및 배송비 재계산
 if not df_err.empty:
     df_err['판매금액'] = df_err.apply(
-        lambda x: x['판매금액'] * x['판매수량'] if x['판매수량'] > 1 else x['판매금액'],
+        lambda x: price_map.get((x['판매품목'], x['옵션명']), 0) * (x['판매수량'] if x['판매수량'] > 1 else 1),
         axis=1
     )
+    df_err['택배비'] = df_err.apply(
+        lambda x: -shipping_map.get((x['상품번호'], x['옵션명']), 0) * x['판매수량'],
+        axis=1
+    )
+
 cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("정상 데이터")
 st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
