@@ -102,8 +102,12 @@ for df in file_dfs:
 combined = pd.concat(dfs, ignore_index=True)
 
 # --- 5) 옵션명 매칭 컬럼 추가 ---
-combined['옵션매칭'] = combined['옵션명'].apply(
-    lambda x: x.split(':')[-1].strip() if ':' in x else x
+# 문자열 안정화를 위해 결측값을 빈 문자열로, str 변환 후 적용
+combined['옵션매칭'] = (
+    combined['옵션명']
+        .fillna('')
+        .astype(str)
+        .apply(lambda x: x.split(':')[-1].strip() if ':' in x else x.strip())
 )
 
 # --- 6) 숫자형 정리 ---
