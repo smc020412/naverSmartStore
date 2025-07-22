@@ -64,16 +64,30 @@ needed = ['주문번호','상품번호','일자','판매품목','옵션명','판
 dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
-    df['상품번호'] = df.get('상품번호', '').astype(str).str.strip()
-    if '옵션정보' in df:
-        df['옵션명'] = df['옵션정보'].astype(str).apply(lambda x: x.split(':')[-1].strip() if ':' in x else x.strip())
-        df.drop(columns=['옵션정보'], inplace=True)
-    if '정산완료일' in df and '주문일시' in df:
-        df['일자'] = pd.to_datetime(df['정산완료일'].fillna(df['주문일시']), errors='coerce')
+    # 상품번호 처리: 컬럼 유무에 따라 다르게 설정
+    if '상품번호' in df.columns:
+        df['상품번호'] = df['상품번호'].astype(str).str.strip()
     else:
-        df['일자'] = pd.to_datetime(df.get('정산완료일', df.get('주문일시')), errors='coerce')
-    for c in needed:
-        df[c] = df.get(c, '' if c not in ['판매수량','판매금액','판매수수료'] else 0)
+        df['상품번호'] = ''
+    # 옵션정보 처리 및 옵션명 추출
+    if '옵션정보' in df.columns:
+        df['옵션명'] = df['옵션정보'].astype(str).apply(
+            lambda x: x.split(':')[-1].strip() if ':' in x else x.strip()
+        )
+        df.drop(columns=['옵션정보'], inplace=True)
+    # 일자 설정
+    if '정산완료일' in df.columns and '주문일시' in df.columns:
+        df['일자'] = pd.to_datetime(
+            df['정산완료일'].fillna(df['주문일시']), errors='coerce'
+        )
+    else:
+        df['일자'] = pd.to_datetime(
+            df.get('정산완료일', df.get('주문일시')), errors='coerce'
+        )
+    # 필요한 컬럼 보장
+    for col in needed:
+        if col not in df.columns:
+            df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     dfs.append(df[needed])
 combined = pd.concat(dfs, ignore_index=True)
 
