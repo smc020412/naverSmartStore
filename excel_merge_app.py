@@ -9,10 +9,14 @@ st.title("네이버스토어 엑셀 결산 앱")
 
 # 1) 배송비 파일 업로드 및 매핑
 shipping_map = {}
-shipping_fee_file = st.sidebar.file_uploader("상품현황 배송비 파일 업로드 (선택)", type=["xlsx"], key="shipping_fee")
+shipping_fee_file = st.sidebar.file_uploader(
+    "상품현황 배송비 파일 업로드 (선택)", type=["xlsx"], key="shipping_fee"
+)
 if shipping_fee_file:
     try:
         df_fee = pd.read_excel(shipping_fee_file, engine="openpyxl")
+        # 상품번호를 문자열로 통일하여 매핑
+        df_fee['상품번호'] = df_fee['상품번호'].astype(str)
         shipping_map = dict(zip(df_fee['상품번호'], df_fee['배송비']))
         st.sidebar.success(f"배송비 매핑 {len(shipping_map)}건 로드됨")
     except Exception as e:
@@ -21,7 +25,9 @@ else:
     st.sidebar.info("배송비 파일 없으면 0 처리")
 
 # 2) 데이터 파일 업로드 & 비밀번호
-upload_files = st.sidebar.file_uploader("네이버스토어 엑셀 업로드 (다중)", type=["xlsx"], accept_multiple_files=True, key="data_files")
+upload_files = st.sidebar.file_uploader(
+    "네이버스토어 엑셀 업로드 (다중)", type=["xlsx"], accept_multiple_files=True, key="data_files"
+)
 password = st.sidebar.text_input("암호 비밀번호", type="password", key="file_password")
 
 # 3) 파일 로드 및 복호화
@@ -29,7 +35,7 @@ file_dfs = []
 for f in upload_files or []:
     try:
         df = pd.read_excel(f, engine="openpyxl")
-    except:
+    except Exception:
         try:
             enc = msoffcrypto.OfficeFile(f)
             enc.load_key(password=password)
@@ -52,16 +58,25 @@ mapping = {
     '정산기준금액(A)':'판매금액','네이버페이 주문관리 수수료(B)':'판매수수료',
     '주문상태':'배송상태','정산상태':'정산현황','클레임상태':'기타'
 }
-needed = ['주문번호','상품번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','배송상태','정산현황','기타']
+needed = [
+    '주문번호','상품번호','일자','판매품목','옵션명',
+    '판매수량','판매금액','판매수수료','배송상태','정산현황','기타'
+]
 dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
+    # 상품번호를 문자열로 통일
+    if '상품번호' in df.columns:
+        df['상품번호'] = df['상품번호'].astype(str)
     # 옵션정보 처리
     if '옵션정보' in df.columns:
-        df['옵션명'] = df['옵션정보']; df.drop(columns=['옵션정보'], inplace=True)
+        df['옵션명'] = df['옵션정보']
+        df.drop(columns=['옵션정보'], inplace=True)
     # 날짜 컬럼 통합
     if '정산완료일' in df.columns and '주문일시' in df.columns:
-        df['일자'] = pd.to_datetime(df['정산완료일'].fillna(df['주문일시']), errors='coerce')
+        df['일자'] = pd.to_datetime(
+            df['정산완료일'].fillna(df['주문일시']), errors='coerce'
+        )
     elif '정산완료일' in df.columns:
         df['일자'] = pd.to_datetime(df['정산완료일'], errors='coerce')
     elif '주문일시' in df.columns:
@@ -74,6 +89,7 @@ for df in file_dfs:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     dfs.append(df[needed])
 combined = pd.concat(dfs, ignore_index=True)
+
 # 숫자형 정리
 for col in ['판매수량','판매금액','판매수수료']:
     combined[col] = pd.to_numeric(combined[col], errors='coerce').fillna(0).astype(int)
@@ -97,7 +113,8 @@ if select_all:
 else:
     sel_nums = []
     for idx, row in prod_map.iterrows():
-        if st.sidebar.checkbox(label=row['판매품목'], value=False, key=f"prod_cb_{idx}"):
+        cb_key = f"prod_cb_{idx}"
+        if st.sidebar.checkbox(label=row['판매품목'], value=False, key=cb_key):
             sel_nums.append(row['상품번호'])
 if not select_all and not sel_nums:
     combined = combined.iloc[0:0]
@@ -110,16 +127,10 @@ combined['택배비'] = -combined['택배비'].astype(int)
 
 # 8) 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
-    '일자':'first',
-    '판매품목':'first',
-    '옵션명': lambda x: x[x!=''].iloc[0] if any(x!='') else '',
-    '판매수량':'sum',
-    '판매금액':'sum',
-    '판매수수료':'sum',
-    '택배비':'sum',
-    '배송상태': lambda x: next((v for v in x if v), ''),
-    '정산현황': lambda x: next((v for v in x if v), ''),
-    '기타': lambda x: ','.join(x.dropna().unique())
+    '일자':'first','판매품목':'first','옵션명':lambda x: x[x!=''].iloc[0] if any(x!='') else '',
+    '판매수량':'sum','판매금액':'sum','판매수수료':'sum','택배비':'sum',
+    '배송상태':lambda x: next((v for v in x if v), ''),
+    '정산현황':lambda x: next((v for v in x if v), ''),'기타':lambda x: ','.join(x.dropna().unique())
 })
 merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
 
@@ -128,10 +139,8 @@ mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일
 df_ok = merged[mask]
 df_err = merged[~mask]
 cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
-st.subheader("정상 데이터")
-st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
-st.subheader("문제 데이터")
-st.data_editor(df_err[cols], num_rows="dynamic", key="err")
+st.subheader("정상 데이터"); st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
+st.subheader("문제 데이터"); st.data_editor(df_err[cols], num_rows="dynamic", key="err")
 
 # 10) 엑셀 다운로드 및 요약행 추가
 buf = BytesIO()
@@ -160,4 +169,9 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     save(df_ok, '정상')
     save(df_err, '문제')
 buf.seek(0)
-st.download_button("결산 엑셀 다운로드", buf, file_name="결과.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+st.download_button(
+    "결산 엑셀 다운로드",
+    buf,
+    file_name="결과.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
