@@ -8,16 +8,19 @@ st.set_page_config(page_title="네이버스토어 엑셀 결산", layout="wide")
 st.title("네이버스토어 엑셀 결산 앱")
 
 # 1) 배송비 파일 업로드 및 매핑
-shipping_map = {}
+shipping_map = {}  # (상품번호, 옵션명) -> 배송비
+
 shipping_fee_file = st.sidebar.file_uploader(
     "상품현황 배송비 파일 업로드 (선택)", type=["xlsx"], key="shipping_fee"
 )
 if shipping_fee_file:
     try:
         df_fee = pd.read_excel(shipping_fee_file, engine="openpyxl")
-        # 상품번호를 문자열로 통일하여 매핑
-        df_fee['상품번호'] = df_fee['상품번호'].astype(str)
-        shipping_map = dict(zip(df_fee['상품번호'], df_fee['배송비']))
+        # 상품번호, 옵션명을 문자열로 통일하여 매핑
+        df_fee["상품번호"] = df_fee["상품번호"].astype(str)
+        df_fee["옵션명"]   = df_fee["옵션명"].astype(str)
+        # (상품번호, 옵션명) -> 배송비 딕셔너리 생성
+        shipping_map = df_fee.set_index(["상품번호","옵션명"])["배송비"].to_dict()
         st.sidebar.success(f"배송비 매핑 {len(shipping_map)}건 로드됨")
     except Exception as e:
         st.sidebar.error(f"배송비 파일 오류: {e}")
@@ -121,9 +124,17 @@ if not select_all and not sel_nums:
 else:
     combined = combined[combined['상품번호'].isin(sel_nums)]
 
-# 7) 택배비 계산 및 표시 (상품번호 기반 매핑)
-combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량'].fillna(0)
-combined['택배비'] = -combined['택배비'].fillna(0).astype(int)
+# 7) 택배비 계산 및 표시 (상품번호+옵션명 기반 매핑)
+combined["상품번호"] = combined["상품번호"].astype(str)
+combined["옵션명"]   = combined["옵션명"].astype(str)
+# 배송비 단가 가져오기
+combined["배송비_단가"] = combined.apply(
+    lambda x: shipping_map.get((x["상품번호"], x["옵션명"]), 0),
+    axis=1
+)
+# 수량 * 단가 → 택배비, 음수 처리
+combined["택배비"] = combined["배송비_단가"] * combined["판매수량"].fillna(0)
+combined["택배비"] = -combined["택배비"].astype(int)
 
 # 8) 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
