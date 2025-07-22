@@ -121,9 +121,9 @@ if not select_all and not sel_nums:
 else:
     combined = combined[combined['상품번호'].isin(sel_nums)]
 
-# 7) 택배비 계산
-combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량']
-combined['택배비'] = -combined['택배비'].astype(int)
+# 7) 택배비 계산 및 표시 (상품번호 기반 매핑)
+combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량'].fillna(0)
+combined['택배비'] = -combined['택배비'].fillna(0).astype(int)
 
 # 8) 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
