@@ -88,7 +88,6 @@ if not dates.empty:
         start, end = dr
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) | combined['일자'].isna()]
 
-
 # 6) 제품 선택 필터
 st.sidebar.header("제품 선택")
 prod_map = combined[['상품번호','판매품목']].drop_duplicates().dropna().reset_index(drop=True)
@@ -109,21 +108,30 @@ else:
 combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량']
 combined['택배비'] = -combined['택배비'].astype(int)
 
-# 8) 집계 및 순수익
+# 8) 집계 및 순수익 계산
 merged = combined.groupby('주문번호', as_index=False).agg({
-    '일자':'first','판매품목':'first','옵션명':lambda x: x[x!=''].iloc[0] if any(x!='') else '',
-    '판매수량':'sum','판매금액':'sum','판매수수료':'sum','택배비':'sum',
-    '배송상태':lambda x: next((v for v in x if v), ''),
-    '정산현황':lambda x: next((v for v in x if v), ''),'기타':lambda x: ','.join(x.dropna().unique())
+    '일자':'first',
+    '판매품목':'first',
+    '옵션명': lambda x: x[x!=''].iloc[0] if any(x!='') else '',
+    '판매수량':'sum',
+    '판매금액':'sum',
+    '판매수수료':'sum',
+    '택배비':'sum',
+    '배송상태': lambda x: next((v for v in x if v), ''),
+    '정산현황': lambda x: next((v for v in x if v), ''),
+    '기타': lambda x: ','.join(x.dropna().unique())
 })
-merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merged['택배비']
+merged['순수익'] = merged['판매금액'] - merged['판매수수료'] + merged['택배비']
 
 # 9) 미리보기
-mask = (merged['판매수량']>0)&(merged['판매금액']>0)&merged['일자'].notna()
-df_ok = merged[mask]; df_err = merged[~mask]
+mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
+df_ok = merged[mask]
+df_err = merged[~mask]
 cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
-st.subheader("정상 데이터"); st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
-st.subheader("문제 데이터"); st.data_editor(df_err[cols], num_rows="dynamic", key="err")
+st.subheader("정상 데이터")
+st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
+st.subheader("문제 데이터")
+st.data_editor(df_err[cols], num_rows="dynamic", key="err")
 
 # 10) 엑셀 다운로드 및 요약행 추가
 buf = BytesIO()
@@ -136,12 +144,12 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         r = ws.max_row + 2
         j = cols.index('판매금액') + 1
         # 기본 요약
-        ws.cell(row=r, column=j, value='총판매량');       ws.cell(row=r,   column=j+1, value=sums['판매수량'])
-        ws.cell(row=r+1, column=j, value='총금액');         ws.cell(row=r+1, column=j+1, value=sums['판매금액'])
-        ws.cell(row=r+2, column=j+2, value='총수수료');    ws.cell(row=r+2, column=j+3, value=sums['판매수수료'])
-        ws.cell(row=r+3, column=j+2, value='총택배비');    ws.cell(row=r+3, column=j+3, value=sums['택배비'])
-        ws.cell(row=r+4, column=j+2, value='총지출');     ws.cell(row=r+4, column=j+3, value=sums['판매수수료'] + sums['택배비'])
-        ws.cell(row=r+5, column=j, value='총이익');        ws.cell(row=r+5, column=j+1, value=sums['판매금액'] - sums['판매수수료'] + sums['택배비'])
+        ws.cell(row=r, column=j, value='총판매량'); ws.cell(row=r, column=j+1, value=sums['판매수량'])
+        ws.cell(row=r+1, column=j, value='총금액'); ws.cell(row=r+1, column=j+1, value=sums['판매금액'])
+        ws.cell(row=r+2, column=j+2, value='총수수료'); ws.cell(row=r+2, column=j+3, value=sums['판매수수료'])
+        ws.cell(row=r+3, column=j+2, value='총택배비'); ws.cell(row=r+3, column=j+3, value=sums['택배비'])
+        ws.cell(row=r+4, column=j+2, value='총지출'); ws.cell(row=r+4, column=j+3, value=sums['판매수수료'] + sums['택배비'])
+        ws.cell(row=r+5, column=j, value='총이익'); ws.cell(row=r+5, column=j+1, value=sums['판매금액'] - sums['판매수수료'] + sums['택배비'])
         # 빠른정산 수량
         qty_fast = ws_df.loc[ws_df['정산현황']=='빠른정산','판매수량'].sum()
         ws.cell(row=r+7, column=j, value='빠른정산 수량'); ws.cell(row=r+7, column=j+1, value=qty_fast)
@@ -152,4 +160,4 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     save(df_ok, '정상')
     save(df_err, '문제')
 buf.seek(0)
-st.download_button("결산 엑셀 다운로드", buf, file_name="결과.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+st.download_button("결산 엑셀 다운로드", buf, file_name="결과.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")```
