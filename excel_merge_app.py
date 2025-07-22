@@ -1,17 +1,15 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-import msoffcrypto  # 암호화된 엑셀 처리용
+import msoffcrypto
 
 # 페이지 설정
 st.set_page_config(page_title="네이버스토어 엑셀 결산", layout="wide")
 st.title("네이버스토어 엑셀 결산 앱")
 
-# 1) 상품현황 배송비 파일 업로드 및 매핑
+# 1) 배송비 파일 업로드 및 매핑
 shipping_map = {}
-shipping_fee_file = st.sidebar.file_uploader(
-    "상품현황 배송비 파일 업로드 (선택)", type=["xlsx"], key="shipping_fee"
-)
+shipping_fee_file = st.sidebar.file_uploader("상품현황 배송비 파일 업로드 (선택)", type=["xlsx"], key="shipping_fee")
 if shipping_fee_file:
     try:
         df_fee = pd.read_excel(shipping_fee_file, engine="openpyxl")
@@ -22,10 +20,8 @@ if shipping_fee_file:
 else:
     st.sidebar.info("배송비 파일 없으면 0 처리")
 
-# 2) 네이버스토어 엑셀 파일 업로드 & 비밀번호
-upload_files = st.sidebar.file_uploader(
-    "네이버스토어 엑셀 업로드 (다중)", type=["xlsx"], accept_multiple_files=True, key="data_files"
-)
+# 2) 데이터 파일 업로드 & 비밀번호
+upload_files = st.sidebar.file_uploader("네이버스토어 엑셀 업로드 (다중)", type=["xlsx"], accept_multiple_files=True, key="data_files")
 password = st.sidebar.text_input("암호 비밀번호", type="password", key="file_password")
 
 # 3) 파일 로드 및 복호화
@@ -33,7 +29,7 @@ file_dfs = []
 for f in upload_files or []:
     try:
         df = pd.read_excel(f, engine="openpyxl")
-    except Exception:
+    except:
         try:
             enc = msoffcrypto.OfficeFile(f)
             enc.load_key(password=password)
@@ -50,34 +46,33 @@ if not file_dfs:
     st.stop()
 
 # 4) 병합 및 컬럼명 통일
-# '정산완료일'과 '주문일시'를 결합해 단일 '일자' 컬럼 생성
 mapping = {
     '주문번호':'주문번호','상품번호':'상품번호',
     '상품명':'판매품목','옵션정보':'옵션명','수량':'판매수량',
     '정산기준금액(A)':'판매금액','네이버페이 주문관리 수수료(B)':'판매수수료',
     '주문상태':'배송상태','정산상태':'정산현황','클레임상태':'기타'
 }
-needed = [
-    '주문번호','상품번호','일자','판매품목','옵션명',
-    '판매수량','판매금액','판매수수료','배송상태','정산현황','기타'
-]
+needed = ['주문번호','상품번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','배송상태','정산현황','기타']
 dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
     # 옵션정보 처리
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']; df.drop(columns=['옵션정보'], inplace=True)
-    # 일자 결합: 정산완료일 우선, 없으면 주문일시
-    if '정산완료일' in df.columns or '주문일시' in df.columns:
-        df['일자'] = pd.to_datetime(
-            df.get('정산완료일').fillna(df.get('주문일시')), errors='coerce'
-        )
-    # 필요한 칼럼 채우기
+    # 날짜 컬럼 통합
+    if '정산완료일' in df.columns and '주문일시' in df.columns:
+        df['일자'] = pd.to_datetime(df['정산완료일'].fillna(df['주문일시']), errors='coerce')
+    elif '정산완료일' in df.columns:
+        df['일자'] = pd.to_datetime(df['정산완료일'], errors='coerce')
+    elif '주문일시' in df.columns:
+        df['일자'] = pd.to_datetime(df['주문일시'], errors='coerce')
+    else:
+        df['일자'] = pd.NaT
+    # 누락 컬럼 보강
     for col in needed:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     dfs.append(df[needed])
-# 통합
 combined = pd.concat(dfs, ignore_index=True)
 # 숫자형 정리
 for col in ['판매수량','판매금액','판매수수료']:
