@@ -71,9 +71,11 @@ needed = ['주문번호','상품번호','일자','판매품목','옵션명',
 dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
-    if '상품번호' in df: df['상품번호'] = df['상품번호'].astype(str).str.strip()
-    else: df['상품번호'] = ''
-    if '옵션정보' in df:
+    if '상품번호' in df.columns:
+        df['상품번호'] = df['상품번호'].astype(str).str.strip()
+    else:
+        df['상품번호'] = ''
+    if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보'].astype(str).apply(
             lambda x: x.split(':')[-1].strip() if ':' in x else x.strip()
         )
@@ -82,7 +84,8 @@ for df in file_dfs:
         df.get('정산완료일', df.get('주문일시')), errors='coerce'
     )
     for col in needed:
-        if col not in df: df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
+        if col not in df.columns:
+            df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     dfs.append(df[needed])
 combined = pd.concat(dfs, ignore_index=True)
 
@@ -117,8 +120,8 @@ else:
 
 # --- 5) 배송비 및 가격 보정 ---
 combined['판매금액'] = combined.apply(
-    lambda x: price_map.get((x['판매품목'],x['옵션매칭']),0)
-              if x['판매금액']==0 else x['판매금액'], axis=1
+    lambda x: price_map.get((x['판매품목'],x['옵션매칭']),0) if x['판매금액']==0 else x['판매금액'],
+    axis=1
 ).astype(int)
 combined['택배비'] = -combined.apply(
     lambda x: shipping_map.get((x['상품번호'],x['옵션매칭']),0)*x['판매수량'],
@@ -138,10 +141,11 @@ merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merge
 mask = (merged['판매수량']>0)&(merged['판매금액']>0)&merged['일자'].notna()
 df_ok = merged[mask]
 df_err = merged[~mask]
+
 st.subheader("정상 데이터")
-st.data_editor(df_ok, num_rows="dynamic")
+st.data_editor(df_ok, num_rows="dynamic", key="editor_ok")
 st.subheader("진행중인 데이터")
-st.data_editor(df_err, num_rows="dynamic")
+st.data_editor(df_err, num_rows="dynamic", key="editor_err")
 
 # --- 8) 다운로드 ---
 buf = BytesIO()
