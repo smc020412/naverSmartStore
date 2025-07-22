@@ -9,9 +9,10 @@ st.set_page_config(page_title="네이버스토어 엑셀 결산", layout="wide")
 st.title("네이버스토어 엑셀 결산 앱")
 
 # --- 1) 배송비 및 판매가격 파일 업로드 및 매핑 ---
-shipping_map = {}         # (상품번호, 옵션매칭) -> 배송비 (정상 데이터용)
-shipping_name_map = {}    # (판매품목, 옵션매칭) -> 배송비 (진행중 데이터용)
-price_map = {}            # (판매품목, 옵션매칭) -> 판매가격
+shipping_map = {}
+shipping_name_map = {}
+price_map = {}
+df_fee = pd.DataFrame()
 
 shipping_fee_file = st.sidebar.file_uploader(
     "상품현황 배송비 + 가격 파일 업로드 (선택)", type=["xlsx"], key="shipping_fee"
@@ -27,10 +28,11 @@ if shipping_fee_file:
         shipping_map = df_fee.set_index(['상품번호','옵션매칭'])['배송비'].to_dict()
         shipping_name_map = df_fee.set_index(['상품명','옵션매칭'])['배송비'].to_dict()
         price_map = df_fee.set_index(['상품명','옵션매칭'])['판매가격'].to_dict()
+        st.sidebar.success("배송비 및 가격 매핑 완료")
     except Exception as e:
         st.sidebar.error(f"배송비/가격 파일 오류: {e}")
 else:
-    st.sidebar.info("배송비 및 가격 파일 없으면 매핑 생략")
+    st.sidebar.info("배송비 및 가격 파일을 업로드해 주세요.")
 
 # --- 2) 네이버스토어 엑셀 업로드 및 암호 입력 ---
 upload_files = st.sidebar.file_uploader(
@@ -47,93 +49,104 @@ for f in upload_files or []:
         try:
             enc = msoffcrypto.OfficeFile(f)
             enc.load_key(password=password)
-            buf = BytesIO()
-            enc.decrypt(buf)
+            buf = BytesIO(); enc.decrypt(buf)
             df = pd.read_excel(buf, engine="openpyxl")
         except Exception as e2:
             st.sidebar.error(f"{f.name} 열기 실패: {e2}")
             continue
     file_dfs.append(df)
 if not file_dfs:
-    st.error("업로드된 파일 없음")
+    st.error("업로드된 파일이 없습니다.")
     st.stop()
 
 # --- 4) 병합 및 컬럼명 통일 ---
-mapping = {'주문번호':'주문번호','상품번호':'상품번호','상품명':'판매품목','옵션정보':'옵션명','수량':'판매수량','정산기준금액(A)':'판매금액','네이버페이 주문관리 수수료(B)':'판매수수료','주문상태':'배송상태','정산상태':'정산현황','클레임상태':'기타'}
-needed = ['주문번호','상품번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','배송상태','정산현황','기타']
+mapping = {
+    '주문번호':'주문번호','상품번호':'상품번호','상품명':'판매품목',
+    '옵션정보':'옵션명','수량':'판매수량','정산기준금액(A)':'판매금액',
+    '네이버페이 주문관리 수수료(B)':'판매수수료','주문상태':'배송상태',
+    '정산상태':'정산현황','클레임상태':'기타'
+}
+needed = ['주문번호','상품번호','일자','판매품목','옵션명',
+          '판매수량','판매금액','판매수수료','배송상태','정산현황','기타']
 dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
-    # 상품번호 처리: 컬럼 유무에 따라 다르게 설정
-    if '상품번호' in df.columns:
-        df['상품번호'] = df['상품번호'].astype(str).str.strip()
-    else:
-        df['상품번호'] = ''
-    # 옵션정보 처리 및 옵션명 추출
-    if '옵션정보' in df.columns:
+    if '상품번호' in df: df['상품번호'] = df['상품번호'].astype(str).str.strip()
+    else: df['상품번호'] = ''
+    if '옵션정보' in df:
         df['옵션명'] = df['옵션정보'].astype(str).apply(
             lambda x: x.split(':')[-1].strip() if ':' in x else x.strip()
         )
         df.drop(columns=['옵션정보'], inplace=True)
-    # 일자 설정
-    if '정산완료일' in df.columns and '주문일시' in df.columns:
-        df['일자'] = pd.to_datetime(
-            df['정산완료일'].fillna(df['주문일시']), errors='coerce'
-        )
-    else:
-        df['일자'] = pd.to_datetime(
-            df.get('정산완료일', df.get('주문일시')), errors='coerce'
-        )
-    # 필요한 컬럼 보장
+    df['일자'] = pd.to_datetime(
+        df.get('정산완료일', df.get('주문일시')), errors='coerce'
+    )
     for col in needed:
-        if col not in df.columns:
-            df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
+        if col not in df: df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     dfs.append(df[needed])
 combined = pd.concat(dfs, ignore_index=True)
 
-# 옵션매칭 필드 추가
-combined['옵션매칭'] = combined['옵션명'].fillna('').astype(str).apply(lambda x: x.split(':')[-1].strip() if ':' in x else x.strip())
+# 옵션매칭 필드 추가 & 타입 정리
+combined['옵션매칭'] = combined['옵션명'].fillna('').astype(str).apply(
+    lambda x: x.split(':')[-1].strip() if ':' in x else x.strip()
+)
 for col in ['판매수량','판매금액','판매수수료']:
     combined[col] = pd.to_numeric(combined[col], errors='coerce').fillna(0).astype(int)
 
-# 날짜 및 제품 필터
+# --- 날짜 필터 ---
 st.sidebar.header("날짜 범위")
 mn, mx = combined['일자'].dt.date.min(), combined['일자'].dt.date.max()
 start, end = st.sidebar.date_input("날짜 선택", value=(mn, mx), min_value=mn, max_value=mx)
 combined = combined[(combined['일자'].dt.date.between(start, end)) | combined['일자'].isna()]
-st.sidebar.header("제품 선택")
-prod_map = combined[['상품번호','판매품목']].drop_duplicates()
-sel = st.sidebar.multiselect("상품 선택", prod_map['상품번호'], default=prod_map['상품번호'].tolist())
-combined = combined[combined['상품번호'].isin(sel)]
 
-# 배송비 및 가격 보정
-combined['판매금액'] = combined.apply(lambda x: price_map.get((x['판매품목'],x['옵션매칭']),0) if x['판매금액']==0 else x['판매금액'], axis=1).astype(int)
-combined['택배비'] = -combined.apply(lambda x: shipping_map.get((x['상품번호'],x['옵션매칭']),0)*x['판매수량'], axis=1).astype(int)
+# --- 제품 선택 체크박스 필터 ---
+st.sidebar.header("제품 선택")
+selected_codes = []
+if not df_fee.empty:
+    df_products = df_fee[['상품번호','상품명']].drop_duplicates()
+    for idx, row in df_products.iterrows():
+        label = f"{row['상품번호']} - {row['상품명']}"
+        if st.sidebar.checkbox(label, key=f"prod_{idx}"):
+            selected_codes.append(row['상품번호'])
+    if selected_codes:
+        combined = combined[combined['상품번호'].isin(selected_codes)]
+    else:
+        combined = combined.iloc[0:0]
+else:
+    st.sidebar.info("상품현황 파일을 먼저 업로드하세요.")
+
+# --- 5) 배송비 및 가격 보정 ---
+combined['판매금액'] = combined.apply(
+    lambda x: price_map.get((x['판매품목'],x['옵션매칭']),0)
+              if x['판매금액']==0 else x['판매금액'], axis=1
+).astype(int)
+combined['택배비'] = -combined.apply(
+    lambda x: shipping_map.get((x['상품번호'],x['옵션매칭']),0)*x['판매수량'],
+    axis=1
+).astype(int)
 combined['총판매금액'] = combined['판매금액'] * combined['판매수량']
 
-# 집계
-merged = combined.groupby('주문번호', as_index=False).agg({'일자':'first','판매품목':'first','옵션명':'first','판매수량':'sum','판매금액':'sum','판매수수료':'sum','택배비':'sum','배송상태':'first','정산현황':'first','기타':'first'})
+# --- 6) 집계 및 순수익 ---
+merged = combined.groupby('주문번호', as_index=False).agg({
+    '일자':'first','판매품목':'first','옵션명':'first',
+    '판매수량':'sum','판매금액':'sum','판매수수료':'sum','택배비':'sum',
+    '배송상태':'first','정산현황':'first','기타':'first'
+})
 merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merged['택배비']
 
-# 분류
+# --- 7) 미리보기 ---
 mask = (merged['판매수량']>0)&(merged['판매금액']>0)&merged['일자'].notna()
 df_ok = merged[mask]
-df_err = merged[~mask].copy()
-# 진행중 데이터 가격·배송비 재계산
-df_err['옵션매칭'] = df_err['옵션명'].fillna('').astype(str).apply(lambda x: x.split(':')[-1].strip() if ':' in x else x.strip())
-df_err['판매금액'] = df_err.apply(lambda x: price_map.get((x['판매품목'],x['옵션매칭']),0)*(x['판매수량'] if x['판매수량']>1 else 1), axis=1).astype(int)
-df_err['택배비'] = df_err.apply(lambda x: -shipping_name_map.get((x['판매품목'],x['옵션매칭']),0)*x['판매수량'], axis=1).astype(int)
-
-cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
+df_err = merged[~mask]
 st.subheader("정상 데이터")
-st.data_editor(df_ok[cols], num_rows="dynamic")
+st.data_editor(df_ok, num_rows="dynamic")
 st.subheader("진행중인 데이터")
-st.data_editor(df_err[cols], num_rows="dynamic")
+st.data_editor(df_err, num_rows="dynamic")
 
-# 다운로드
+# --- 8) 다운로드 ---
 buf = BytesIO()
-with pd.ExcelWriter(buf, engine='openpyxl') as w:
-    df_ok.to_excel(w, sheet_name='정상', index=False)
-    df_err.to_excel(w, sheet_name='진행시트', index=False)
+with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+    df_ok.to_excel(writer, sheet_name='정상', index=False)
+    df_err.to_excel(writer, sheet_name='진행시트', index=False)
 buf.seek(0)
-st.download_button("다운로드", buf, file_name="결산.xlsx")
+st.download_button("결산 엑셀 다운로드", buf, file_name="결과.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
