@@ -50,9 +50,8 @@ if not file_dfs:
     st.stop()
 
 # 4) 병합 및 컬럼명 통일
-# '정산완료일'과 '주문일시'를 결합해 단일 '일자' 컬럼 생성
 mapping = {
-    '주문번호':'주문번호','상품번호':'상품번호',
+    '주문번호':'주문번호','상품번호':'상품번호','정산완료일':'일자',
     '상품명':'판매품목','옵션정보':'옵션명','수량':'판매수량',
     '정산기준금액(A)':'판매금액','네이버페이 주문관리 수수료(B)':'판매수수료',
     '주문상태':'배송상태','정산상태':'정산현황','클레임상태':'기타'
@@ -64,22 +63,14 @@ needed = [
 dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
-    # 옵션정보 처리
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']; df.drop(columns=['옵션정보'], inplace=True)
-    # 일자 결합: 정산완료일 우선, 없으면 주문일시
-    if '정산완료일' in df.columns or '주문일시' in df.columns:
-        df['일자'] = pd.to_datetime(
-            df.get('정산완료일').fillna(df.get('주문일시')), errors='coerce'
-        )
-    # 필요한 칼럼 채우기
     for col in needed:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     dfs.append(df[needed])
-# 통합
 combined = pd.concat(dfs, ignore_index=True)
-# 숫자형 정리
+combined['일자'] = pd.to_datetime(combined['일자'], errors='coerce')
 for col in ['판매수량','판매금액','판매수수료']:
     combined[col] = pd.to_numeric(combined[col], errors='coerce').fillna(0).astype(int)
 
@@ -92,7 +83,6 @@ if not dates.empty:
     if isinstance(dr, tuple):
         start, end = dr
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) | combined['일자'].isna()]
-
 
 # 6) 제품 선택 필터
 st.sidebar.header("제품 선택")
@@ -158,4 +148,3 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     save(df_err, '문제')
 buf.seek(0)
 st.download_button("결산 엑셀 다운로드", buf, file_name="결과.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
