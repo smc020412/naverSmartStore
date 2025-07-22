@@ -155,10 +155,16 @@ merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merge
 
 # --- 12) 미리보기 (판매수수료 == 0 기준 분류) ---
 mask = merged['판매수수료'] == 0
-# 정상(판매수수료 != 0)
+# 정상 데이터
 df_ok = merged[~mask]
-# 진행중인 데이터(판매수수료 == 0)
+# 진행중인 데이터
 df_err = merged[mask]
+# 진행중 데이터 판매금액 표시 수정: 판매수량 > 1이면 판매금액 * 판매수량
+if not df_err.empty:
+    df_err['판매금액'] = df_err.apply(
+        lambda x: x['판매금액'] * x['판매수량'] if x['판매수량'] > 1 else x['판매금액'],
+        axis=1
+    )
 cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("정상 데이터")
 st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
