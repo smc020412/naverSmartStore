@@ -18,16 +18,17 @@ shipping_fee_file = st.sidebar.file_uploader(
 if shipping_fee_file:
     try:
         df_fee = pd.read_excel(shipping_fee_file, engine="openpyxl")
-        df_fee['상품번호'] = df_fee['상품번호'].astype(str)
+        # 상품번호 및 옵션명 타입 통일
+        df_fee['상품번호'] = df_fee['상품번호'].astype(str).str.strip()
         if '옵션명' in df_fee.columns:
-            df_fee['옵션명'] = df_fee['옵션명'].astype(str)
-        # 옵션별 가격 매핑
-        if '옵션명' in df_fee.columns and '가격' in df_fee.columns:
+            df_fee['옵션명'] = df_fee['옵션명'].astype(str).str.strip()
+        # 옵션별 판매가격 매핑 (컬럼명 '판매가격')
+        if '옵션명' in df_fee.columns and '판매가격' in df_fee.columns:
             option_price_map = {
                 (prod, opt): price
                 for prod, opt, price in zip(
-                    df_fee['상품번호'], df_fee['옵션명'], df_fee['가격']
-                )
+                    df_fee['상품번호'], df_fee['옵션명'], df_fee['판매가격']
+                ) if pd.notna(price)
             }
         # 옵션별 배송비 매핑
         if '옵션명' in df_fee.columns and '배송비' in df_fee.columns:
@@ -35,11 +36,13 @@ if shipping_fee_file:
                 (prod, opt): fee
                 for prod, opt, fee in zip(
                     df_fee['상품번호'], df_fee['옵션명'], df_fee['배송비']
-                )
+                ) if pd.notna(fee)
             }
         # 기본 상품별 배송비 매핑 (fallback)
         if '배송비' in df_fee.columns:
-            shipping_map = dict(zip(df_fee['상품번호'], df_fee['배송비']))
+            shipping_map = dict(
+                zip(df_fee['상품번호'], df_fee['배송비'])
+            )
         st.sidebar.success(
             f"배송비 및 옵션 가격 매핑: {len(shipping_map)}개 상품, {len(option_price_map)}개 옵션 로드됨"
         )
@@ -90,10 +93,11 @@ dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
     if '상품번호' in df.columns:
-        df['상품번호'] = df['상품번호'].astype(str)
+        df['상품번호'] = df['상품번호'].astype(str).str.strip()
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']
         df.drop(columns=['옵션정보'], inplace=True)
+    # 날짜 통합
     if '정산완료일' in df.columns and '주문일시' in df.columns:
         df['일자'] = pd.to_datetime(
             df['정산완료일'].fillna(df['주문일시']), errors='coerce'
@@ -109,6 +113,7 @@ for df in file_dfs:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     dfs.append(df[needed])
 combined = pd.concat(dfs, ignore_index=True)
+# 숫자형 정리
 for col in ['판매수량','판매금액','판매수수료']:
     combined[col] = pd.to_numeric(combined[col], errors='coerce').fillna(0).astype(int)
 
