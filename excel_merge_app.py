@@ -7,7 +7,7 @@ import msoffcrypto
 st.set_page_config(page_title="네이버스토어 엑셀 결산", layout="wide")
 st.title("네이버스토어 엑셀 결산 앱")
 
-# 1) 배송비 및 옵션 가격 파일 업로드 및 매핑
+# --- 1) 배송비 및 옵션 가격 파일 업로드 및 매핑 ---
 shipping_map = {}
 option_price_map = {}
 option_shipping_map = {}
@@ -47,13 +47,13 @@ if shipping_fee_file:
 else:
     st.sidebar.info("배송비/옵션 가격 파일 없으면 0 처리")
 
-# 2) 데이터 파일 업로드 & 비밀번호
+# --- 2) 판매자료 파일 업로드 & 비밀번호 ---
 upload_files = st.sidebar.file_uploader(
     "네이버스토어 엑셀 업로드 (다중)", type=["xlsx"], accept_multiple_files=True, key="data_files"
 )
 password = st.sidebar.text_input("암호 비밀번호", type="password", key="file_password")
 
-# 3) 파일 로드 및 복호화
+# --- 3) 파일 로드 및 복호화 ---
 file_dfs = []
 for f in upload_files or []:
     try:
@@ -74,7 +74,7 @@ if not file_dfs:
     st.error("업로드된 파일 없음")
     st.stop()
 
-# 4) 병합 및 컬럼명 통일
+# --- 4) 병합 및 컬럼명 통일 ---
 mapping = {
     '주문번호':'주문번호','상품번호':'상품번호',
     '상품명':'판매품목','옵션정보':'옵션명','수량':'판매수량',
@@ -88,11 +88,14 @@ needed = [
 dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
+    # 상품번호 문자열로 통일
     if '상품번호' in df.columns:
         df['상품번호'] = df['상품번호'].astype(str)
+    # 옵션정보 -> 옵션명
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']
         df.drop(columns=['옵션정보'], inplace=True)
+    # 날짜 통합
     if '정산완료일' in df.columns and '주문일시' in df.columns:
         df['일자'] = pd.to_datetime(
             df['정산완료일'].fillna(df['주문일시']), errors='coerce'
@@ -103,16 +106,17 @@ for df in file_dfs:
         df['일자'] = pd.to_datetime(df['주문일시'], errors='coerce')
     else:
         df['일자'] = pd.NaT
+    # 누락 컬럼 추가
     for col in needed:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     dfs.append(df[needed])
 combined = pd.concat(dfs, ignore_index=True)
-
+# 숫자형 정리
 for col in ['판매수량','판매금액','판매수수료']:
     combined[col] = pd.to_numeric(combined[col], errors='coerce').fillna(0).astype(int)
 
-# 5) 날짜 필터
+# --- 5) 날짜 필터 ---
 st.sidebar.header("날짜 범위")
 dates = combined['일자'].dt.date.dropna()
 if not dates.empty:
@@ -122,7 +126,7 @@ if not dates.empty:
         start, end = dr
         combined = combined[((combined['일자'].dt.date >= start) & (combined['일자'].dt.date <= end)) | combined['일자'].isna()]
 
-# 6) 제품 선택 필터
+# --- 6) 제품 선택 필터 ---
 st.sidebar.header("제품 선택")
 prod_map = combined[['상품번호','판매품목']].drop_duplicates().dropna().reset_index(drop=True)
 select_all = st.sidebar.checkbox("전체 선택", value=True, key="sel_all")
@@ -139,13 +143,11 @@ if not select_all and not sel_nums:
 else:
     combined = combined[combined['상품번호'].isin(sel_nums)]
 
-# 7) 택배비 및 옵션명 추출
-
+# --- 7) 택배비 및 옵션명 추출 ---
 def extract_opt_name(opt):
     if pd.isna(opt) or not isinstance(opt, str):
         return ''
     return opt.split(':',1)[1].strip() if ':' in opt else opt.strip()
-
 combined['옵션추출'] = combined['옵션명'].apply(extract_opt_name)
 combined['택배비'] = combined.apply(
     lambda row: option_shipping_map.get((row['상품번호'], row['옵션추출']),
@@ -154,22 +156,26 @@ combined['택배비'] = combined.apply(
 )
 combined['택배비'] = -combined['택배비'].fillna(0).astype(int)
 
-# 8) 집계 및 순수익 계산
+# --- 8) 집계 및 순수익 계산 (상품번호 포함) ---
 merged = combined.groupby('주문번호', as_index=False).agg({
-    '일자':'first','판매품목':'first','옵션명':lambda x: x[x!=''].iloc[0] if any(x!='') else '',
+    '일자':'first',
+    '판매품목':'first',
+    '상품번호':'first',
+    '옵션명':lambda x: x[x!=''].iloc[0] if any(x!='') else '',
     '판매수량':'sum','판매금액':'sum','판매수수료':'sum','택배비':'sum',
     '배송상태':lambda x: next((v for v in x if v), ''),
-    '정산현황':lambda x: next((v for v in x if v), ''),'기타':lambda x: ','.join(x.dropna().unique())
+    '정산현황':lambda x: next((v for v in x if v), ''),
+    '기타':lambda x: ','.join(x.dropna().unique())
 })
 merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merged['택배비']
 
-# 9) 미리보기 및 문제 데이터 가격 수정
+# --- 9) 미리보기 및 문제 데이터 가격 수정 ---
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
 df_ok = merged[mask]
 df_err = merged[~mask].copy()
 
-# 문제 데이터에 대한 옵션 가격 적용 (수량 > 0인 경우에만 매칭)
 if option_price_map:
+    # 문제 데이터에 대해 상품번호+옵션명 기준으로 가격 매핑
     df_err['옵션추출'] = df_err['옵션명'].apply(extract_opt_name)
     df_err['판매금액'] = df_err.apply(
         lambda row: row['판매수량'] * option_price_map.get(
@@ -180,11 +186,13 @@ if option_price_map:
     ).astype(int)
     df_err['순수익'] = df_err['판매금액'] + df_err['판매수수료'] + df_err['택배비']
 
-cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
+# 컬럼 순서
+cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액',
+        '판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("정상 데이터"); st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
 st.subheader("문제 데이터"); st.data_editor(df_err[cols], num_rows="dynamic", key="err")
 
-# 10) 엑셀 다운로드 및 요약행 추가
+# --- 10) 엑셀 다운로드 및 요약행 추가 ---
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def save(df, name):
