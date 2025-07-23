@@ -17,9 +17,7 @@ shipping_fee_file = st.sidebar.file_uploader(
 if shipping_fee_file:
     try:
         df_fee = pd.read_excel(shipping_fee_file, engine="openpyxl")
-        # 상품번호를 문자열로 통일
         df_fee['상품번호'] = df_fee['상품번호'].astype(str)
-        # 옵션명도 문자열로 통일 (존재 시)
         if '옵션명' in df_fee.columns:
             df_fee['옵션명'] = df_fee['옵션명'].astype(str)
         # 옵션별 가격 매핑
@@ -90,14 +88,11 @@ needed = [
 dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
-    # 상품번호를 문자열로 통일
     if '상품번호' in df.columns:
         df['상품번호'] = df['상품번호'].astype(str)
-    # 옵션정보 처리 (mapping에서 rename 되었으므로 원본이 없으면 넘어감)
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']
         df.drop(columns=['옵션정보'], inplace=True)
-    # 날짜 컬럼 통합
     if '정산완료일' in df.columns and '주문일시' in df.columns:
         df['일자'] = pd.to_datetime(
             df['정산완료일'].fillna(df['주문일시']), errors='coerce'
@@ -108,14 +103,12 @@ for df in file_dfs:
         df['일자'] = pd.to_datetime(df['주문일시'], errors='coerce')
     else:
         df['일자'] = pd.NaT
-    # 누락 컬럼 보강
     for col in needed:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     dfs.append(df[needed])
 combined = pd.concat(dfs, ignore_index=True)
 
-# 숫자형 정리
 for col in ['판매수량','판매금액','판매수수료']:
     combined[col] = pd.to_numeric(combined[col], errors='coerce').fillna(0).astype(int)
 
@@ -146,7 +139,7 @@ if not select_all and not sel_nums:
 else:
     combined = combined[combined['상품번호'].isin(sel_nums)]
 
-# 7) 택배비 계산 및 옵션별 매핑
+# 7) 택배비 및 옵션명 추출
 
 def extract_opt_name(opt):
     if pd.isna(opt) or not isinstance(opt, str):
@@ -175,16 +168,16 @@ mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일
 df_ok = merged[mask]
 df_err = merged[~mask].copy()
 
-# 문제 데이터에 대한 옵션 가격 적용
+# 문제 데이터에 대한 옵션 가격 적용 (수량 > 0인 경우에만 매칭)
 if option_price_map:
     df_err['옵션추출'] = df_err['옵션명'].apply(extract_opt_name)
     df_err['판매금액'] = df_err.apply(
-        lambda row: row['판매수량'] * option_price_map.get((row['상품번호'], row['옵션추출']), row['판매금액'])
-                    if row['판매수량'] > 1 and option_price_map.get((row['상품번호'], row['옵션추출'])) is not None
-                    else row['판매금액'],
+        lambda row: row['판매수량'] * option_price_map.get(
+            (row['상품번호'], row['옵션추출']), row['판매금액']
+        ) if row['판매수량'] > 0 and (row['상품번호'], row['옵션추출']) in option_price_map
+        else row['판매금액'],
         axis=1
     ).astype(int)
-    # 순수익 재계산
     df_err['순수익'] = df_err['판매금액'] + df_err['판매수수료'] + df_err['택배비']
 
 cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
@@ -201,17 +194,14 @@ with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         sums = {c: ws_df[c].sum() for c in ['판매수량','판매금액','판매수수료','택배비']}
         r = ws.max_row + 2
         j = cols.index('판매금액') + 1
-        # 기본 요약
         ws.cell(row=r, column=j, value='총판매량'); ws.cell(row=r, column=j+1, value=sums['판매수량'])
         ws.cell(row=r+1, column=j, value='총금액'); ws.cell(row=r+1, column=j+1, value=sums['판매금액'])
         ws.cell(row=r+2, column=j+2, value='총수수료'); ws.cell(row=r+2, column=j+3, value=sums['판매수수료'])
         ws.cell(row=r+3, column=j+2, value='총택배비'); ws.cell(row=r+3, column=j+3, value=sums['택배비'])
         ws.cell(row=r+4, column=j+2, value='총지출'); ws.cell(row=r+4, column=j+3, value=sums['판매수수료'] + sums['택배비'])
         ws.cell(row=r+5, column=j, value='총이익'); ws.cell(row=r+5, column=j+1, value=sums['판매금액'] - sums['판매수수료'] + sums['택배비'])
-        # 빠른정산 수량
         qty_fast = ws_df.loc[ws_df['정산현황']=='빠른정산','판매수량'].sum()
         ws.cell(row=r+7, column=j, value='빠른정산 수량'); ws.cell(row=r+7, column=j+1, value=qty_fast)
-        # 배송 상태별 수량
         for k, status in enumerate(['배송중','배송완료','구매확정']):
             qty = ws_df.loc[ws_df['배송상태']==status,'판매수량'].sum()
             ws.cell(row=r+8+k, column=j, value=f'{status} 수량'); ws.cell(row=r+8+k, column=j+1, value=qty)
