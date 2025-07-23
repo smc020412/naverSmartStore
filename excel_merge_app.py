@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import re
 from io import BytesIO
 import msoffcrypto
 
@@ -88,14 +89,11 @@ needed = [
 dfs = []
 for df in file_dfs:
     df.rename(columns=mapping, inplace=True)
-    # 상품번호 문자열로 통일
     if '상품번호' in df.columns:
         df['상품번호'] = df['상품번호'].astype(str)
-    # 옵션정보 -> 옵션명
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']
         df.drop(columns=['옵션정보'], inplace=True)
-    # 날짜 통합
     if '정산완료일' in df.columns and '주문일시' in df.columns:
         df['일자'] = pd.to_datetime(
             df['정산완료일'].fillna(df['주문일시']), errors='coerce'
@@ -106,13 +104,11 @@ for df in file_dfs:
         df['일자'] = pd.to_datetime(df['주문일시'], errors='coerce')
     else:
         df['일자'] = pd.NaT
-    # 누락 컬럼 추가
     for col in needed:
         if col not in df.columns:
             df[col] = 0 if col in ['판매수량','판매금액','판매수수료'] else ''
     dfs.append(df[needed])
 combined = pd.concat(dfs, ignore_index=True)
-# 숫자형 정리
 for col in ['판매수량','판매금액','판매수수료']:
     combined[col] = pd.to_numeric(combined[col], errors='coerce').fillna(0).astype(int)
 
@@ -147,7 +143,8 @@ else:
 def extract_opt_name(opt):
     if pd.isna(opt) or not isinstance(opt, str):
         return ''
-    return opt.split(':',1)[1].strip() if ':' in opt else opt.strip()
+    parts = re.split(r':\s*', opt, 1)
+    return parts[1].strip() if len(parts) > 1 else opt.strip()
 combined['옵션추출'] = combined['옵션명'].apply(extract_opt_name)
 combined['택배비'] = combined.apply(
     lambda row: option_shipping_map.get((row['상품번호'], row['옵션추출']),
@@ -175,7 +172,6 @@ df_ok = merged[mask]
 df_err = merged[~mask].copy()
 
 if option_price_map:
-    # 문제 데이터에 대해 상품번호+옵션명 기준으로 가격 매핑
     df_err['옵션추출'] = df_err['옵션명'].apply(extract_opt_name)
     df_err['판매금액'] = df_err.apply(
         lambda row: row['판매수량'] * option_price_map.get(
@@ -186,13 +182,12 @@ if option_price_map:
     ).astype(int)
     df_err['순수익'] = df_err['판매금액'] + df_err['판매수수료'] + df_err['택배비']
 
-# 컬럼 순서
+# --- 10) 미리보기 및 다운로드 ---
 cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액',
         '판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("정상 데이터"); st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
 st.subheader("문제 데이터"); st.data_editor(df_err[cols], num_rows="dynamic", key="err")
 
-# --- 10) 엑셀 다운로드 및 요약행 추가 ---
 buf = BytesIO()
 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
     def save(df, name):
