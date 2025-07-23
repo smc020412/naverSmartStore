@@ -7,22 +7,47 @@ import msoffcrypto
 st.set_page_config(page_title="네이버스토어 엑셀 결산", layout="wide")
 st.title("네이버스토어 엑셀 결산 앱")
 
-# 1) 배송비 파일 업로드 및 매핑
+# 1) 배송비 및 옵션 가격 파일 업로드 및 매핑
 shipping_map = {}
+option_price_map = {}
+option_shipping_map = {}
 shipping_fee_file = st.sidebar.file_uploader(
-    "상품현황 배송비 파일 업로드 (선택)", type=["xlsx"], key="shipping_fee"
+    "상품현황 배송비 및 옵션 가격 파일 업로드 (선택)", type=["xlsx"], key="shipping_fee"
 )
 if shipping_fee_file:
     try:
         df_fee = pd.read_excel(shipping_fee_file, engine="openpyxl")
-        # 상품번호를 문자열로 통일하여 매핑
+        # 상품번호를 문자열로 통일
         df_fee['상품번호'] = df_fee['상품번호'].astype(str)
-        shipping_map = dict(zip(df_fee['상품번호'], df_fee['배송비']))
-        st.sidebar.success(f"배송비 매핑 {len(shipping_map)}건 로드됨")
+        # 옵션명도 문자열로 통일 (존재 시)
+        if '옵션명' in df_fee.columns:
+            df_fee['옵션명'] = df_fee['옵션명'].astype(str)
+        # 옵션별 가격 매핑
+        if '옵션명' in df_fee.columns and '가격' in df_fee.columns:
+            option_price_map = {
+                (prod, opt): price
+                for prod, opt, price in zip(
+                    df_fee['상품번호'], df_fee['옵션명'], df_fee['가격']
+                )
+            }
+        # 옵션별 배송비 매핑
+        if '옵션명' in df_fee.columns and '배송비' in df_fee.columns:
+            option_shipping_map = {
+                (prod, opt): fee
+                for prod, opt, fee in zip(
+                    df_fee['상품번호'], df_fee['옵션명'], df_fee['배송비']
+                )
+            }
+        # 기본 상품별 배송비 매핑 (fallback)
+        if '배송비' in df_fee.columns:
+            shipping_map = dict(zip(df_fee['상품번호'], df_fee['배송비']))
+        st.sidebar.success(
+            f"배송비 및 옵션 가격 매핑: {len(shipping_map)}개 상품, {len(option_price_map)}개 옵션 로드됨"
+        )
     except Exception as e:
-        st.sidebar.error(f"배송비 파일 오류: {e}")
+        st.sidebar.error(f"배송비/옵션 가격 파일 오류: {e}")
 else:
-    st.sidebar.info("배송비 파일 없으면 0 처리")
+    st.sidebar.info("배송비/옵션 가격 파일 없으면 0 처리")
 
 # 2) 데이터 파일 업로드 & 비밀번호
 upload_files = st.sidebar.file_uploader(
@@ -68,7 +93,7 @@ for df in file_dfs:
     # 상품번호를 문자열로 통일
     if '상품번호' in df.columns:
         df['상품번호'] = df['상품번호'].astype(str)
-    # 옵션정보 처리
+    # 옵션정보 처리 (mapping에서 rename 되었으므로 원본이 없으면 넘어감)
     if '옵션정보' in df.columns:
         df['옵션명'] = df['옵션정보']
         df.drop(columns=['옵션정보'], inplace=True)
@@ -121,8 +146,19 @@ if not select_all and not sel_nums:
 else:
     combined = combined[combined['상품번호'].isin(sel_nums)]
 
-# 7) 택배비 계산 및 표시 (상품번호 기반 매핑)
-combined['택배비'] = combined['상품번호'].map(shipping_map).fillna(0) * combined['판매수량'].fillna(0)
+# 7) 택배비 계산 및 옵션별 매핑
+
+def extract_opt_name(opt):
+    if pd.isna(opt) or not isinstance(opt, str):
+        return ''
+    return opt.split(':',1)[1].strip() if ':' in opt else opt.strip()
+
+combined['옵션추출'] = combined['옵션명'].apply(extract_opt_name)
+combined['택배비'] = combined.apply(
+    lambda row: option_shipping_map.get((row['상품번호'], row['옵션추출']),
+                                        shipping_map.get(row['상품번호'], 0))
+               * row['판매수량'], axis=1
+)
 combined['택배비'] = -combined['택배비'].fillna(0).astype(int)
 
 # 8) 집계 및 순수익 계산
@@ -134,10 +170,23 @@ merged = combined.groupby('주문번호', as_index=False).agg({
 })
 merged['순수익'] = merged['판매금액'] + merged['판매수수료'] + merged['택배비']
 
-# 9) 미리보기
+# 9) 미리보기 및 문제 데이터 가격 수정
 mask = (merged['판매수량'] > 0) & (merged['판매금액'] > 0) & merged['일자'].notna()
 df_ok = merged[mask]
-df_err = merged[~mask]
+df_err = merged[~mask].copy()
+
+# 문제 데이터에 대한 옵션 가격 적용
+if option_price_map:
+    df_err['옵션추출'] = df_err['옵션명'].apply(extract_opt_name)
+    df_err['판매금액'] = df_err.apply(
+        lambda row: row['판매수량'] * option_price_map.get((row['상품번호'], row['옵션추출']), row['판매금액'])
+                    if row['판매수량'] > 1 and option_price_map.get((row['상품번호'], row['옵션추출'])) is not None
+                    else row['판매금액'],
+        axis=1
+    ).astype(int)
+    # 순수익 재계산
+    df_err['순수익'] = df_err['판매금액'] + df_err['판매수수료'] + df_err['택배비']
+
 cols = ['주문번호','일자','판매품목','옵션명','판매수량','판매금액','판매수수료','택배비','순수익','배송상태','정산현황','기타']
 st.subheader("정상 데이터"); st.data_editor(df_ok[cols], num_rows="dynamic", key="ok")
 st.subheader("문제 데이터"); st.data_editor(df_err[cols], num_rows="dynamic", key="err")
