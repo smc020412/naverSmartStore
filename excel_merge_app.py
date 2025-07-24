@@ -91,6 +91,12 @@ needed = [
 ]
 dfs = []
 for df in file_dfs:
+    # 수수료 합산 처리: '매출연동 수수료 합계(C)' 값을 '네이버페이 주문관리 수수료(B)'에 더함
+    if '매출연동 수수료 합계(C)' in df.columns:
+        df['네이버페이 주문관리 수수료(B)'] = (
+            pd.to_numeric(df.get('네이버페이 주문관리 수수료(B)', 0), errors='coerce').fillna(0)
+            + pd.to_numeric(df['매출연동 수수료 합계(C)'], errors='coerce').fillna(0)
+        )
     df.rename(columns=mapping, inplace=True)
     if '상품번호' in df.columns:
         df['상품번호'] = df['상품번호'].astype(str).str.strip()
